@@ -25,7 +25,7 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
 1. Clone the repository:
     ```sh
     git clone https://github.com/saralangaz/ollama-poc.git
-    cd yourrepository
+    cd ollama-poc
     ```
 
 2. Build the Docker images:
