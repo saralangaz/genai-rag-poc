@@ -54,7 +54,7 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
         - `user_prompt` (string): The user prompt for the model.
         - `model` (string): The model to be used (e.g., `llava`).
         - `output_type` (string): The expected output type (e.g., `JSON array`).
-        - `image_file` (optional, file): The image file to be processed.
+        - `image_url` (optional, string): The image url to be processed.
     - **Response**:
         - `id` (string): The request ID.
         - `data` (string): The processed data.
@@ -89,7 +89,7 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
     - `User Prompt`: Enter the user prompt for the model.
     - `Model`: Select the model from the dropdown list.
     - `Output Type`: Specify the expected output type.
-    - `Upload Image`: Upload an image file if needed.
+    - `Image URL`: Specify an image URL if needed.
 
 3. Click `Submit` to process the request.
 
@@ -111,4 +111,3 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Gradio](https://gradio.app/)
 - [Ollama](https://ollama.com/)
-
