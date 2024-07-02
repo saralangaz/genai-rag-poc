@@ -1,0 +1,43 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    platform: linux/amd64
+    image: poc-genai  # Replace with your Docker image name/tag for poc-app
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1  # Ensures Python output is sent straight to terminal
+    depends_on:
+      - ollama  # Ensure poc-app starts after ollama
+    networks:
+      - app-network  # Attach to the backend network for inter-container communication
+  
+  gradio:
+    build:
+      context: .
+      dockerfile: Dockerfile.gradio
+    ports:
+      - "7860:7860"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  ollama:
+    platform: linux/amd64
+    image: ollama/ollama # Replace with your Docker image name/tag for ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - app-network  # Attach to the backend network for inter-container communication
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
