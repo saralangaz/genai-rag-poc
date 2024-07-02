@@ -2,7 +2,7 @@
 
 Hello and welcome!
 
-This repository contains a FastAPI backend and a Gradio frontend for processing and retrieving data from the Ollama model. The application can handle both text and image inputs, using the LLava model from Ollama.
+This repository contains a FastAPI backend and a Gradio frontend for processing and retrieving data from the Ollama model. The application can handle both text and image inputs, using different models from Ollama.
 
 ## Table of Contents
 
