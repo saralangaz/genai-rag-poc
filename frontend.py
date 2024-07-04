@@ -4,7 +4,7 @@ import numpy as np
 
 
 # Define a function to process the request
-def process_request(system_prompt, user_prompt, model, output_type, image_url=None):
+def process_request(system_prompt, user_prompt, model, output_type, image_url=None, document_file=None):
     url = "http://backend:8000/api/process"  # Adjust this to your FastAPI server address
     
     # Prepare payload for text data
@@ -13,7 +13,8 @@ def process_request(system_prompt, user_prompt, model, output_type, image_url=No
         "user_prompt": user_prompt,
         "model": model,
         "output_type": output_type,
-        "image_url": image_url
+        "image_url": image_url,
+        "document_file":document_file
     }
 
     # Send POST request to FastAPI backend
@@ -37,9 +38,10 @@ system_prompt_input = gr.Textbox(label="System Prompt", placeholder="You are an 
 user_prompt_input = gr.Textbox(label="User Prompt", placeholder="Generate a set of JSON data for a hypothetical e-commerce website."
                                "The data should include fields for product name, price, and availability." 
                                "The output should only include the data. Don't include any other message.")
-model_input = gr.Dropdown(label="Model", choices=["llama3", "mistral", "gemma2", "llava:13b"])
+model_input = gr.Dropdown(label="Model", choices=["llama3", "mistral", "llava:13b"])
 output_type_input = gr.Textbox(label="Output Type", placeholder="JSON array")
 image_url_input = gr.Textbox(label="Image URL. Use only with llava model", placeholder="https://example.com/image.png")
+file_input = gr.Files(label="Upload Documents. Use only with mistral model", type="filepath")
 
 # Define Gradio components for model retrieval
 request_id_input = gr.Textbox(label="Request ID to Retrieve", placeholder="550e8400-e29b-41d4-a716-446655440000")
@@ -47,7 +49,7 @@ request_id_input = gr.Textbox(label="Request ID to Retrieve", placeholder="550e8
 # Create Gradio interface for model processing
 process_interface = gr.Interface(
     fn=process_request,
-    inputs=[system_prompt_input, user_prompt_input, model_input, output_type_input, image_url_input],
+    inputs=[system_prompt_input, user_prompt_input, model_input, output_type_input, image_url_input, file_input],
     outputs="json",
     title="Ollama New Model Request",
     description="Hello and welcome to our amazing app! To use the model, enter the following info."
