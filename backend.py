@@ -10,6 +10,17 @@ import requests
 from PIL import Image
 from io import BytesIO
 import base64
+import tempfile
+import os
+from langchain_community.vectorstores import Chroma
+from langchain_community.chat_models import ChatOllama
+from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+from langchain_community.document_loaders import WebBaseLoader
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+import sys
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -21,16 +32,13 @@ app = FastAPI()
 storage: Dict[str, Dict] = {}
 
 # Create Pydantic classes
-class ColumnSchema(BaseModel):
-    name: str
-    type: str
-
 class InputText(BaseModel):
     system_prompt: str
     user_prompt: str
     model: str
     output_type: str
     image_url: str | None
+    document_file: str | None
 
 # Generate unique ids for each model request
 def generate_unique_id() -> str:
@@ -72,66 +80,18 @@ async def process(input_text:InputText):
     # Log the incoming request
     logger.info(f"Received input: {input_text}")
 
-    # Construct the content with the output type
-    user_prompt = f"""
-    {input_text.user_prompt}
-
-    Aditional instructions:
-    - Output format must be a {input_text.output_type}.
-    - Please, follow the instructions specified in this prompt. Don't do anything that was not requested in this prompt.
-    """
-    client = Client(host='http://ollama:11434')
-    # Prepare messages for Ollama chat
-    messages = [
-        {'role': 'system', 'content': input_text.system_prompt},
-        {'role': 'user', 'content': user_prompt},
-    ]
-
-    # Add image url if provided
-    if input_text.image_url:
-        client = Client(host='http://ollama:11434/api/generate')
-        # Download and encode the image
-        try:
-            image_response = requests.get(input_text.image_url)
-            image_response.raise_for_status()
-            image = Image.open(BytesIO(image_response.content))
-            buffered = BytesIO()
-            image.save(buffered, format="PNG")
-            image_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            messages[1]['images'] = [image_base64]
-        except Exception as e:
-            logger.error(f"Error downloading or encoding image: {e}")
-            raise HTTPException(status_code=400, detail="Error processing image URL")
-
-    # Call the external model
-    try:
-        response = client.chat(model=input_text.model, messages=messages)
-
-    except Exception:
-        logger.warning(f'Model is not loaded into container. Loading model {input_text.model}...')
-        # Define the endpoint URL for the Ollama-container
-        ollama_url = "http://ollama:11434/api/pull"
-            # Prepare the payload with the model name
-        payload = {"model": input_text.model}
-        # Send the POST request to the Ollama-container
-        requests.post(ollama_url, json=payload)
-        logger.info(f'Model {input_text.model} loaded')
-        # Retry the chat request after loading the model
-        response = client.chat(model=input_text.model, messages=messages)
-
-    try:
-        # Obtain the response from the model
-        data = response['message']['content']
-
-        # Return data with its request_id 
-        request_id = generate_unique_id()
-        storage[request_id] = json.dumps(data)
-        
-        return {"id": request_id, "data": data}
+    # Launch classes depending on the model input
+    if input_text.model == 'llama3':
+        process_request = Llama3Model(input_text)
+    elif input_text.model == 'llava:13b':
+        process_request = LlavaModel(input_text)
+    else:
+        process_request = MistralModel(input_text)
     
-    except Exception as e:
-        logger.error(f"Error processing request: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # Execute the request
+    response = process_request.execute_model()
+
+    return response
 
 # Endpoint to retrieve a previous model request
 @app.get("/api/retrieve/{request_id}")
@@ -145,3 +105,125 @@ async def retrieve_model(request_id: str):
     else:
         raise HTTPException(status_code=404, detail="Request ID not found")
 
+
+class Llama3Model:
+    def __init__(self, input_text):
+        self.input_text = input_text
+    
+    def execute_model(self):
+         # Construct the content with the output type
+        user_prompt = f"""
+        {self.input_text.user_prompt}
+
+        Aditional instructions:
+        - Output format must be a {self.input_text.output_type}.
+        - Please, follow the instructions specified in this prompt. Don't do anything that was not requested in this prompt.
+        """
+        client = Client(host='http://ollama:11434')
+        # Prepare messages for Ollama chat
+        messages = [
+            {'role': 'system', 'content': self.input_text.system_prompt},
+            {'role': 'user', 'content': user_prompt},
+        ]
+
+        # Call the external model
+        try:
+                response = client.chat(model=self.input_text.model, messages=messages)
+
+        except Exception:
+            logger.warning(f'Model is not loaded into container. Loading model {self.input_text.model}...')
+            # Define the endpoint URL for the Ollama-container
+            ollama_url = "http://ollama:11434/api/pull"
+            # Prepare the payload with the model name
+            payload = {"model": self.input_text.model}
+            # Send the POST request to the Ollama-container
+            requests.post(ollama_url, json=payload)
+            logger.info(f'Model {self.input_text.model} loaded')
+            # Retry the chat request after loading the model
+            response = client.chat(model=self.input_text.model, messages=messages)
+
+        try:
+            # Obtain the response from the model
+            data = response['message']['content']
+
+            # Return data with its request_id 
+            request_id = generate_unique_id()
+            storage[request_id] = json.dumps(data)
+            
+            return {"id": request_id, "data": data}
+        
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        
+class LlavaModel:
+    def __init__(self, input_text):
+        self.input_text = input_text
+    
+    def execute_model(self):
+         # Construct the content with the output type
+        user_prompt = f"""
+        {self.input_text.user_prompt}
+
+        Aditional instructions:
+        - Output format must be a {self.input_text.output_type}.
+        - Please, follow the instructions specified in this prompt. Don't do anything that was not requested in this prompt.
+        """
+        client = Client(host='http://ollama:11434/api/generate')
+
+        try:
+            # Download and encode the image
+            image_response = requests.get(self.input_text.image_url)
+            image_response.raise_for_status()
+            image = Image.open(BytesIO(image_response.content))
+            buffered = BytesIO()
+            image.save(buffered, format="PNG")
+            image_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            # Prepare messages for Ollama chat
+            messages = [
+                {'role': 'system', 'content': self.input_text.system_prompt},
+                {'role': 'user', 'content': user_prompt, 'images': [image_base64]},
+            ]
+        except Exception as e:
+            logger.error(f"Error downloading or encoding image: {e}")
+            raise HTTPException(status_code=400, detail="Error processing image URL")
+
+        # Call the external model
+        try:
+                response = client.chat(model=self.input_text.model, messages=messages)
+
+        except Exception:
+            logger.warning(f'Model is not loaded into container. Loading model {self.input_text.model}...')
+            # Define the endpoint URL for the Ollama-container
+            ollama_url = "http://ollama:11434/api/pull"
+            # Prepare the payload with the model name
+            payload = {"model": self.input_text.model}
+            # Send the POST request to the Ollama-container
+            requests.post(ollama_url, json=payload)
+            logger.info(f'Model {self.input_text.model} loaded')
+            # Retry the chat request after loading the model
+            response = client.chat(model=self.input_text.model, messages=messages)
+
+        try:
+            # Obtain the response from the model
+            data = response['message']['content']
+
+            # Return data with its request_id 
+            request_id = generate_unique_id()
+            storage[request_id] = json.dumps(data)
+            
+            return {"id": request_id, "data": data}
+        
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+class MistralModel:
+    vector_store = None
+    retriever = None
+    chain = None
+    def __init__(self, input_text):
+        self.input_text = input_text
+    
+    def execute_model(self):
+        pass
