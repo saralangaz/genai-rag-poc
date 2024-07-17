@@ -113,24 +113,23 @@ class MultiModalModel(GenericInputs):
         except Exception as e:
             logger.error(f"Error downloading or encoding image: {e}")
             raise HTTPException(status_code=400, detail="Error processing image URL")
+        
+        try:                
+            # Check if model is loaded into container
+            r = requests.get(f'{ollama_host}/api/tags')
+            if self.input_text.model not in str(r.content):
+                logger.info(f'Model is not loaded into container. Loading model...')
+                # Define the endpoint URL for the Ollama-container
+                ollama_url = f"{ollama_host}/api/pull"
+                # Prepare the payload with the model name
+                payload = {"model": self.input_text.model}
+                # Send the POST request to the Ollama-container
+                requests.post(ollama_url, json=payload)
+                logger.info(f'Model {self.input_text.model} loaded')
 
-        # Call the external model
-        try:
-                response = client.chat(model=self.input_text.model, messages=messages)
-
-        except Exception:
-            logger.warning(f'Model is not loaded into container. Loading model {self.input_text.model}...')
-            # Define the endpoint URL for the Ollama-container
-            ollama_url = f"{ollama_host}/api/pull"
-            # Prepare the payload with the model name
-            payload = {"model": self.input_text.model}
-            # Send the POST request to the Ollama-container
-            requests.post(ollama_url, json=payload)
-            logger.info(f'Model {self.input_text.model} loaded')
-            # Retry the chat request after loading the model
+            # Call the external model
             response = client.chat(model=self.input_text.model, messages=messages)
-
-        try:
+            
             # Obtain the response from the model
             data = response['message']['content']
 
@@ -196,52 +195,62 @@ class RagModel(GenericInputs):
         #Loading embedding
         embeddings = OllamaEmbeddings(model=self.input_text.model, base_url=ollama_host)
         model = ChatOllama(model=self.input_text.model, base_url=ollama_host)
+        # Check if model is loaded into container
+        r = requests.get(f'{ollama_host}/api/tags')
+        if self.input_text.model not in str(r.content):
+            logger.info(f'Model is not loaded into container. Loading model...')
+            # Define the endpoint URL for the Ollama-container
+            ollama_url = f"{ollama_host}/api/pull"
+            # Prepare the payload with the model name
+            payload = {"model": self.input_text.model}
+            # Send the POST request to the Ollama-container
+            requests.post(ollama_url, json=payload)
+            logger.info(f'Model {self.input_text.model} loaded')
         try:
             if file_paths:
-                counter = 0
-                for file_path in file_paths:
-                    # Load documents locally
-                    loader = PyPDFLoader(file_path)
-                    pages = loader.load_and_split()
-                    # Save them permanently in Azure Container
-                    upload_documents(self.input_text.username, file_path, document_files[counter].filename)
-                    logger.info(f"Loaded {len(pages)} pages")
-                    # Split the Text into Individual Questions
-                    documents = self.text_splitter.split_documents(pages)
-                    #Create vector store
-                    vector_store_db = FAISS.from_documents(documents=documents, embedding=embeddings)
-                    vector_store_db.save_local(folder_path="faiss_index", index_name=document_files[counter].filename)
-                    # Save vector store index in Azure
-                    upload_index(self.input_text.username, "faiss_index", document_files[counter].filename)
-                    counter =+ 1
-                return {'Documents loaded succesfully'}
+                    counter = 0
+                    for file_path in file_paths:
+                        # Load documents locally
+                        loader = PyPDFLoader(file_path)
+                        pages = loader.load_and_split()
+                        # Save them permanently in Azure Container
+                        upload_documents(self.input_text.username, file_path, document_files[counter].filename)
+                        logger.info(f"Loaded {len(pages)} pages")
+                        # Split the Text into Individual Questions
+                        documents = self.text_splitter.split_documents(pages)
+                        #Create vector store
+                        vector_store_db = FAISS.from_documents(documents=documents, embedding=embeddings)
+                        vector_store_db.save_local(folder_path="faiss_index", index_name=document_files[counter].filename)
+                        # Save vector store index in Azure
+                        upload_index(self.input_text.username, "faiss_index", document_files[counter].filename)
+                        counter =+ 1
+                    return {'Documents loaded succesfully'}
             else:
-                # Download index from Azure
-                vector_store_db = download_index(self.input_text.username, "faiss_index", embeddings)
-                logger.info('Vector store has been created')
-                if self.input_text.input_choice == "Ask a question to the knowledge base":
-                    # Retrieve the information
-                    retriever = vector_store_db.as_retriever()
-                    # Query the vector store
-                    document_chain = create_stuff_documents_chain(model, self.prompt)
-                    chain = create_retrieval_chain(retriever, document_chain)
-                    result = chain.invoke({"input": self.input_text.user_prompt})
-                    sources = []
-                    for doc in result['context']:
-                        sources.append({"Source":doc.metadata["source"]})
-                    # Return data with its request_id 
-                    request_id = generate_unique_id()
-                    storage[request_id] = {'data': result["answer"], 'Sources': json.dumps(sources)}
-                    return {"id": request_id, 'data': result["answer"], 'Sources': sources}
-                else:
-                    result = vector_store_db.similarity_search_with_score(self.input_text.user_prompt)
-                    # Return data with its request_id 
-                    request_id = generate_unique_id()
-                    storage[request_id] = {'data': str(result)}
-                    return {"id": request_id, 'data': str(result)}
-
-
+                    # Download index from Azure
+                    vector_store_db = download_index(self.input_text.username, "faiss_index", embeddings)
+                    logger.info('Vector store has been created')
+                    if self.input_text.input_choice == "Ask a question to the knowledge base":
+                        # Retrieve the information
+                        retriever = vector_store_db.as_retriever()
+                        # Query the vector store
+                        document_chain = create_stuff_documents_chain(model, self.prompt)
+                        chain = create_retrieval_chain(retriever, document_chain)
+                        result = chain.invoke({"input": self.input_text.user_prompt})
+                        # Provide response
+                        sources = []
+                        for doc in result['context']:
+                            sources.append({"Source":doc.metadata["source"]})
+                        # Return data with its request_id 
+                        request_id = generate_unique_id()
+                        storage[request_id] = {'data': result["answer"], 'Sources': json.dumps(sources)}
+                        return {"id": request_id, 'data': result["answer"], 'Sources': sources}
+                    else:
+                        result = vector_store_db.similarity_search_with_score(self.input_text.user_prompt)
+                        # Return data with its request_id 
+                        request_id = generate_unique_id()
+                        storage[request_id] = {'data': str(result)}
+                        return {"id": request_id, 'data': str(result)}
         except Exception as e:
             logger.info(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-    
+            
