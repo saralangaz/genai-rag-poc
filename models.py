@@ -232,13 +232,13 @@ class RagModel(GenericInputs):
                     # Return data with its request_id 
                     request_id = generate_unique_id()
                     storage[request_id] = {'data': result["answer"], 'Sources': json.dumps(sources)}
-                    return {'data': result["answer"], 'Sources': sources}
+                    return {"id": request_id, 'data': result["answer"], 'Sources': sources}
                 else:
                     result = vector_store_db.similarity_search_with_score(self.input_text.user_prompt)
                     # Return data with its request_id 
                     request_id = generate_unique_id()
                     storage[request_id] = {'data': str(result)}
-                    return {'data': str(result)}
+                    return {"id": request_id, 'data': str(result)}
 
 
         except Exception as e:
