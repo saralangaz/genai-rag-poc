@@ -75,7 +75,7 @@ def process_rag_request(model, use_case, request: gr.Request, user_prompt, input
     user_prompt : str
         The user prompt for the request.
     input_choice : str
-        The type of input choice (e.g., "Ask a question to the knowledge base", "Upload Documents").
+        The type of input choice (e.g., "Ask a question to the knowledge base", "Upload a Document").
     files : List[UploadFile], optional
         List of files to be uploaded for the request (default is None).
 
@@ -156,7 +156,7 @@ def update_input_components(choice):
 
     if choice == "Ask a question to the knowledge base":
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=True)
-    elif choice == "Upload Documents to the knowledge base":
+    elif choice == "Upload a Document to the knowledge base":
         return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
     elif choice == "Run a similarity search and return the appropiate documents":
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
