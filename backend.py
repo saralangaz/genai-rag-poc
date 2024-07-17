@@ -32,6 +32,42 @@ async def process(model: str = Form(...),
                   username: str = Form(...),
                   input_choice: Optional[str] = Form(None),
                   document_files: List[UploadFile] = File(None)):
+    """
+    Process a request to interact with the Ollama model based on input parameters.
+
+    This endpoint handles HTTP POST requests sent to '/api/process' for processing
+    text and/or image inputs using different models. It ensures authentication 
+    using username and password stored in Cosmos DB.
+
+    Parameters:
+    -----------
+    model : str
+        The name of the model to be used for processing.
+    use_case : str
+        Specifies the use case scenario ('multimodal' or 'rag').
+    system_prompt : str, optional
+        The system prompt input for the model.
+    user_prompt : str, optional
+        The user prompt input for the model.
+    image_url : str, optional
+        URL of the image to be processed.
+    username : str
+        Username for authentication.
+    input_choice : str, optional
+        Type of input choice for RAG model ('question' or 'similarity search').
+    document_files : List[UploadFile], optional
+        List of uploaded files (PDF format) for processing.
+
+    Returns:
+    --------
+    dict
+        A dictionary containing the processed data or error details.
+
+    Raises:
+    -------
+    HTTPException
+        If authentication fails (status_code 401).
+    """
     
     # Assign the received data to input text
     input_text = InputText(
@@ -73,6 +109,28 @@ async def process(model: str = Form(...),
 # Endpoint to retrieve a previous model request
 @app.get("/api/retrieve/{request_id}")
 async def retrieve_model(request_id: str):
+    """
+    Retrieve processed data associated with a specific request ID.
+
+    This endpoint handles HTTP GET requests sent to '/api/retrieve/{request_id}'
+    for retrieving processed data stored in the application's storage.
+
+    Parameters:
+    -----------
+    request_id : str
+        The unique identifier of the request whose data is to be retrieved.
+
+    Returns:
+    --------
+    dict
+        A dictionary containing the retrieved processed data.
+
+    Raises:
+    -------
+    HTTPException
+        If the specified request ID is not found in the storage (status_code 404).
+    """
+    
     if request_id in storage:
         # Retrieve JSON string from storage
         json_content = storage[request_id]

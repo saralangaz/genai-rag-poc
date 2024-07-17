@@ -67,33 +67,76 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
 
 ## Deployment on Azure
 
-1. Push the Docker images to your Azure Container Registry (ACR):
-    ```sh
-    docker tag yourimage:tag acrname.azurecr.io/yourimage:tag
-    docker push acrname.azurecr.io/yourimage:tag
-    ```
+1. Push Docker Images to Azure Container Registry (ACR):
+   - Tag and push your Docker images to your Azure Container Registry:
+     ```sh
+     docker tag yourimage:tag acrname.azurecr.io/yourimage:tag
+     docker push acrname.azurecr.io/yourimage:tag
+     ```
 
-2. Create an Azure Web App for Containers and configure it to use your images from ACR.
+2. Create an Azure Web App for Containers:
+   - Create an Azure Web App for Containers and configure it to use your images from ACR.
+   - Set up the following environment variables in your Azure Web App:
+     - `WEBSITES_PORT` to `80` for the Gradio container.
 
-3. Set up the following environment variables in your Azure Web App:
-    - `WEBSITES_PORT` to `80` for the Gradio container.
+3. User Account Creation:
+   - In order to log in and use the application, users must create an account. Here's how to set up user accounts:
+     - The application uses authentication based on usernames and passwords stored in Cosmos DB.
+     - Use the following steps to add a new user:
+       - Access your Cosmos DB instance where user credentials are stored.
+       - Add a new document with `userid` and `password` fields to create a new user account.
+       - Ensure the user credentials are securely stored and managed.
 
 4. Ensure your Azure Web App can access the frontend service.
 
-## Usage
+# Usage
 
-1. Open the Gradio interface at `http://localhost:7860` (or your Azure Web App URL).
+1. Open the Gradio interface at http://localhost:7860 (or your Azure Web App URL).
+   - This script creates a multi-tab interface that allows you to choose between different use cases:
+     - **Multi-Modal Use Case**: Select a model and provide system prompts, user prompts, and optional image URLs to generate structured data.
+     - **RAG Use Case**: Choose a model and input type (question or similarity search), and optionally upload documents for retrieval.
+     - **ID Request Retrieval**: Enter a request ID to retrieve previously processed data.
 
-2. Fill in the required fields:
-    - `System Prompt`: Enter the system prompt for the model.
-    - `User Prompt`: Enter the user prompt for the model.
-    - `Model`: Select the model from the dropdown list.
-    - `Output Type`: Specify the expected output type.
-    - `Image URL`: Specify an image URL if needed.
+2. Fill in the Required Fields:
+   - **Multi-Modal Use Case**:
+     - Choose a model from the dropdown list.
+     - Enter system and user prompts as text inputs.
+     - Optionally provide an image URL.
+     - Click `Submit` to process the request.
 
-3. Click `Submit` to process the request.
+   - **RAG Use Case**:
+     - Select a model from the dropdown list.
+     - Choose the type of input (question or similarity search).
+     - Enter the user query or upload documents using the provided file upload button.
+     - Click `Submit` to process the request.
 
-4. Use the request ID provided in the response to retrieve an past request.
+   - **ID Request Retrieval**:
+     - Enter a valid request ID that was generated from a previous request.
+     - Click `Retrieve` to fetch the processed data associated with the request ID.
+
+3. Review the Output:
+   - The interface will display the processed data in JSON format.
+   - For multi-modal and RAG use cases, the processed data may include structured outputs or retrieved documents based on the input provided.
+
+
+## Model Classes
+
+This repository includes several model classes implemented in `models.py` that facilitate different functionalities:
+
+### MultiModalModel
+
+- **Purpose**: Integrates text and image inputs for processing using the Ollama model.
+- **Methods**:
+  - `execute_model(file_path=None, document_file=None)`: Processes input text and optionally an image, using system and user prompts.
+
+### RagModel
+
+- **Purpose**: Implements the RAG (Retrieval-Augmented Generation) model for document handling and retrieval.
+- **Methods**:
+  - `execute_model(file_paths, document_files)`: Handles document processing, indexing, and retrieval based on user queries.
+
+Each model class provides specific functionalities tailored to different use cases, enhancing the capabilities of the FastAPI and Gradio application in handling various types of data inputs and requests.
+
 
 ## Troubleshooting
 
