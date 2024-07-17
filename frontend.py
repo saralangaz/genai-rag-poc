@@ -75,7 +75,7 @@ def process_rag_request(model, use_case, request: gr.Request, user_prompt, input
     user_prompt : str
         The user prompt for the request.
     input_choice : str
-        The type of input choice (e.g., "Ask a question to the knowledge base", "Upload Documents").
+        The type of input choice (e.g., "Ask a question to the knowledge base", "Upload a Document").
     files : List[UploadFile], optional
         List of files to be uploaded for the request (default is None).
 

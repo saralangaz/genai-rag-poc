@@ -208,48 +208,50 @@ class RagModel(GenericInputs):
             logger.info(f'Model {self.input_text.model} loaded')
         try:
             if file_paths:
-                    counter = 0
-                    for file_path in file_paths:
-                        # Load documents locally
-                        loader = PyPDFLoader(file_path)
-                        pages = loader.load_and_split()
-                        # Save them permanently in Azure Container
-                        upload_documents(self.input_text.username, file_path, document_files[counter].filename)
-                        logger.info(f"Loaded {len(pages)} pages")
-                        # Split the Text into Individual Questions
-                        documents = self.text_splitter.split_documents(pages)
-                        #Create vector store
-                        vector_store_db = FAISS.from_documents(documents=documents, embedding=embeddings)
-                        vector_store_db.save_local(folder_path="faiss_index", index_name=document_files[counter].filename)
-                        # Save vector store index in Azure
-                        upload_index(self.input_text.username, "faiss_index", document_files[counter].filename)
-                        counter =+ 1
-                    return {'Documents loaded succesfully'}
+                logger.info(f'Loading Files...')
+                counter = 0
+                for file_path in file_paths:
+                    # Load documents locally
+                    loader = PyPDFLoader(file_path)
+                    pages = loader.load_and_split()
+                    # Save them permanently in Azure Container
+                    upload_documents(self.input_text.username, file_path, document_files[counter].filename)
+                    logger.info(f"Loaded {len(pages)} pages")
+                    # Split the Text into Individual Questions
+                    documents = self.text_splitter.split_documents(pages)
+                    #Create vector store
+                    vector_store_db = FAISS.from_documents(documents=documents, embedding=embeddings)
+                    vector_store_db.save_local(folder_path="faiss_index", index_name=document_files[counter].filename)
+                    # Save vector store index in Azure
+                    upload_index(self.input_text.username, "faiss_index", document_files[counter].filename)
+                    counter =+ 1
+                return {'Documents loaded succesfully'}
             else:
-                    # Download index from Azure
-                    vector_store_db = download_index(self.input_text.username, "faiss_index", embeddings)
-                    logger.info('Vector store has been created')
-                    if self.input_text.input_choice == "Ask a question to the knowledge base":
-                        # Retrieve the information
-                        retriever = vector_store_db.as_retriever()
-                        # Query the vector store
-                        document_chain = create_stuff_documents_chain(model, self.prompt)
-                        chain = create_retrieval_chain(retriever, document_chain)
-                        result = chain.invoke({"input": self.input_text.user_prompt})
-                        # Provide response
-                        sources = []
-                        for doc in result['context']:
-                            sources.append({"Source":doc.metadata["source"]})
-                        # Return data with its request_id 
-                        request_id = generate_unique_id()
-                        storage[request_id] = {'data': result["answer"], 'Sources': json.dumps(sources)}
-                        return {"id": request_id, 'data': result["answer"], 'Sources': sources}
-                    else:
-                        result = vector_store_db.similarity_search_with_score(self.input_text.user_prompt)
-                        # Return data with its request_id 
-                        request_id = generate_unique_id()
-                        storage[request_id] = {'data': str(result)}
-                        return {"id": request_id, 'data': str(result)}
+                # Download index from Azure
+                logger.info(f'Downloading Index...')
+                vector_store_db = download_index(self.input_text.username, "faiss_index", embeddings)
+                logger.info('Vector store has been created')
+                if self.input_text.input_choice == "Ask a question to the knowledge base":
+                    # Retrieve the information
+                    retriever = vector_store_db.as_retriever()
+                    # Query the vector store
+                    document_chain = create_stuff_documents_chain(model, self.prompt)
+                    chain = create_retrieval_chain(retriever, document_chain)
+                    result = chain.invoke({"input": self.input_text.user_prompt})
+                    # Provide response
+                    sources = []
+                    for doc in result['context']:
+                        sources.append({"Source":doc.metadata["source"]})
+                    # Return data with its request_id 
+                    request_id = generate_unique_id()
+                    storage[request_id] = {'data': result["answer"], 'Sources': json.dumps(sources)}
+                    return {"id": request_id, 'data': result["answer"], 'Sources': sources}
+                else:
+                    result = vector_store_db.similarity_search_with_score(self.input_text.user_prompt)
+                    # Return data with its request_id 
+                    request_id = generate_unique_id()
+                    storage[request_id] = {'data': str(result)}
+                    return {"id": request_id, 'data': str(result)}
         except Exception as e:
             logger.info(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))
