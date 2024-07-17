@@ -41,3 +41,7 @@ networks:
 
 volumes:
   ollama_data:
+  index_data:
+    driver: local
+  backups:
+    driver: local

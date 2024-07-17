@@ -9,6 +9,10 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 # Copy
 COPY ./backend.py /code/
 COPY ./frontend.py /code/
+COPY ./constants.py /code/
+COPY ./utils.py /code/
+COPY ./.env /code/
+COPY ./models.py /code/
 
 # Expose port
 EXPOSE 7860

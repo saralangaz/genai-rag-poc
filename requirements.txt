@@ -6,5 +6,9 @@ requests
 gradio
 langchain
 langchain_community
-chromadb
 fastembed
+pypdf
+faiss-cpu
+python-multipart
+azure.storage.blob
+azure-cosmos

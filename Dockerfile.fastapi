@@ -8,9 +8,12 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 # 
 COPY ./backend.py /code/
+COPY ./constants.py /code/
+COPY ./utils.py /code/
+COPY ./.env /code/
+COPY ./models.py /code/
 
 # Expose
-
 EXPOSE 8000
 
 # 
