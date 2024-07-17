@@ -156,7 +156,7 @@ def update_input_components(choice):
 
     if choice == "Ask a question to the knowledge base":
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=True)
-    elif choice == "Upload Documents to the knowledge base":
+    elif choice == "Upload a Document to the knowledge base":
         return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
     elif choice == "Run a similarity search and return the appropiate documents":
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
