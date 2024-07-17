@@ -16,6 +16,30 @@ logger = logging.getLogger(__name__)
 
 # Define a function to process the request
 def process_mm_request(model, use_case, request: gr.Request, system_prompt=None, user_prompt=None, image_url=None):
+    """
+    Send a POST request to a FastAPI backend for processing multi-modal requests.
+
+    Parameters:
+    -----------
+    model : str
+        The model name or identifier.
+    use_case : str
+        The specific use case for the request.
+    request : gr.Request
+        The request object containing user information.
+    system_prompt : str or None, optional
+        The system prompt for the request (default is None).
+    user_prompt : str or None, optional
+        The user prompt for the request (default is None).
+    image_url : str or None, optional
+        The URL of an image related to the request (default is None).
+
+    Returns:
+    --------
+    dict
+        JSON response from the FastAPI backend.
+    """
+
     url = f"{backend_host}/api/process"  # Adjust this to your FastAPI server address
         
     payload = {
@@ -37,33 +61,76 @@ def process_mm_request(model, use_case, request: gr.Request, system_prompt=None,
         return {"error": response.text}
 
 def process_rag_request(model, use_case, request: gr.Request, user_prompt, input_choice, files=None):
-        url = f"{backend_host}/api/process"  # Adjust this to your FastAPI server address
+    """
+    Send a POST request to a FastAPI backend for processing RAG (Retrieval-Augmented Generation) requests.
+
+    Parameters:
+    -----------
+    model : str
+        The model name or identifier.
+    use_case : str
+        The specific use case for the request.
+    request : gr.Request
+        The request object containing user information.
+    user_prompt : str
+        The user prompt for the request.
+    input_choice : str
+        The type of input choice (e.g., "Ask a question to the knowledge base", "Upload a Document").
+    files : List[UploadFile], optional
+        List of files to be uploaded for the request (default is None).
+
+    Returns:
+    --------
+    dict
+        JSON response from the FastAPI backend.
+    """
         
-        payload = {
-            "model": model,
-            "use_case": use_case,
-            "system_prompt": None,
-            "user_prompt": user_prompt,
-            "image_url": None,
-            "username": request.username,
-            "input_choice": input_choice
-        }
-        logger.info(f'Info loaded: Payload is {payload}')
-        
-        # Send POST request to FastAPI backend
-        processed_files = []
-        if files:
-            for file in files:
-                if file:
-                    processed_files.append(('document_files', open(file.name, 'rb')))
-        response = requests.post(url, data=payload, files=processed_files)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return {"error": response.text}
+    url = f"{backend_host}/api/process"  # Adjust this to your FastAPI server address
+    
+    payload = {
+        "model": model,
+        "use_case": use_case,
+        "system_prompt": None,
+        "user_prompt": user_prompt,
+        "image_url": None,
+        "username": request.username,
+        "input_choice": input_choice
+    }
+    logger.info(f'Info loaded: Payload is {payload}')
+    
+    # Send POST request to FastAPI backend
+    processed_files = []
+    if files:
+        for file in files:
+            if file:
+                processed_files.append(('document_files', open(file.name, 'rb')))
+    response = requests.post(url, data=payload, files=processed_files)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return {"error": response.text}
 
 # Define a function to retrieve old requests
 def retrieve_request(request_id):
+    """
+    Retrieve data associated with a specific request ID from a FastAPI backend endpoint.
+
+    Parameters:
+    -----------
+    request_id : str
+        The unique identifier of the request to retrieve.
+
+    Returns:
+    --------
+    dict
+        JSON response containing data associated with the request ID.
+
+    Raises:
+    ------
+    HTTPException
+        If the request fails or the request ID is not found (status_code != 200).
+    """
+
     url = f"{backend_host}/api/retrieve/{request_id}"  # Use the Azure service name
     response = requests.get(url)
     if response.status_code == 200:
@@ -73,6 +140,20 @@ def retrieve_request(request_id):
     
 # Define a function to update the visibility of inputs based on dropdown selection
 def update_input_components(choice):
+    """
+    Update the visibility of input components based on the selected choice.
+
+    Parameters:
+    -----------
+    choice : str
+        The selected choice determining which input components to display.
+
+    Returns:
+    --------
+    tuple of gradio.Component
+        Tuple containing Gradio update objects to adjust the visibility of input components.
+    """
+
     if choice == "Ask a question to the knowledge base":
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=True)
     elif choice == "Upload a Document to the knowledge base":
