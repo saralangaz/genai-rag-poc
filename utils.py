@@ -24,12 +24,61 @@ CONTAINER_NAME = os.getenv("COSMOS_DB_CONTAINER_NAME")
 
 # Function to ensure correct base64 padding
 def ensure_correct_padding(encoded_key):
+    """
+    Ensure that the Base64 encoded key has correct padding with '=' characters.
+
+    Parameters:
+    -----------
+    encoded_key : str
+        The Base64 encoded key that may require padding.
+
+    Returns:
+    --------
+    str
+        The input `encoded_key` with correct padding added, if necessary.
+
+    Notes:
+    ------
+    Base64 encoded strings are padded with '=' characters to ensure they have a length
+    that is a multiple of 4. This function checks the length of `encoded_key` and adds
+    the appropriate number of '=' characters to ensure correct padding.
+
+    Example:
+    --------
+    >>> encoded_key = 'YWJjZA'  # Example Base64 encoded string without padding
+    >>> ensure_correct_padding(encoded_key)
+    'YWJjZA=='
+    """
+
     padding = len(encoded_key) % 4
     if padding != 0:
         encoded_key += '=' * (4 - padding)
     return encoded_key
 
 def create_container_if_not_exists(container_name: str):
+    """
+    Create a blob storage container if it does not already exist.
+
+    Parameters:
+    -----------
+    container_name : str
+        Name of the container to be created or checked.
+
+    Raises:
+    -------
+    ResourceNotFoundError
+        If the container does not exist and cannot be created.
+
+    Notes:
+    ------
+    This function checks if a blob storage container with the given `container_name` exists.
+    If the container does not exist, it creates it using the `blob_service_client`.
+
+    Example:
+    --------
+    >>> create_container_if_not_exists("my-container")
+    """
+
     try:
         container_client = blob_service_client.get_container_client(container_name)
         container_client.get_container_properties()  # Check if container exists
@@ -38,6 +87,35 @@ def create_container_if_not_exists(container_name: str):
         container_client = blob_service_client.create_container(container_name)
 
 def upload_documents(container_name: str, filepath:str, filename: str):
+    """
+    Uploads a document file to Azure Blob Storage.
+
+    Parameters:
+    -----------
+    container_name : str
+        Name of the Azure Blob Storage container where the file will be uploaded.
+    filepath : str
+        Local filepath of the document file to upload.
+    filename : str
+        Name to assign to the file in Azure Blob Storage.
+
+    Raises:
+    -------
+    HTTPException
+        If an AzureError occurs during the upload process.
+
+    Notes:
+    ------
+    This function ensures that the specified Azure Blob Storage container exists
+    by calling `create_container_if_not_exists`. It then uploads the file located
+    at `filepath` to Azure Blob Storage under the 'documents' directory with the
+    specified `filename`.
+
+    Example:
+    --------
+    >>> upload_documents("my-container", "/local/path/to/file.pdf", "file.pdf")
+    """
+
     try:
         # Ensure the container exists
         create_container_if_not_exists(container_name)
@@ -52,6 +130,30 @@ def upload_documents(container_name: str, filepath:str, filename: str):
         raise HTTPException(status_code=500, detail=f"AzureError: {str(e)}")
 
 def upload_index(container_name: str, faiss_index: str, filename: str):
+    """
+    Uploads a Faiss index and its corresponding pickle file to Azure Blob Storage.
+
+    Parameters:
+    -----------
+    container_name : str
+        Name of the Azure Blob Storage container where the files will be uploaded.
+    faiss_index : str
+        Directory path where the Faiss index files are located locally.
+    filename : str
+        Name to assign to the Faiss index files in Azure Blob Storage.
+
+    Notes:
+    ------
+    This function assumes that the Faiss index and its corresponding pickle file
+    are located in the specified `faiss_index` directory locally. It uploads these
+    files to Azure Blob Storage under the 'faiss_index' directory with the specified
+    `filename`.
+
+    Example:
+    --------
+    >>> upload_index("my-container", "/local/path/to/faiss_index", "index1")
+    """
+
     container_client = blob_service_client.get_container_client(container=container_name)
     with open(f'{faiss_index}/{filename}.faiss', "rb") as faiss_file:
         faiss_data = faiss_file.read()
@@ -61,6 +163,37 @@ def upload_index(container_name: str, faiss_index: str, filename: str):
         container_client.upload_blob(name=f'faiss_index/{filename}.pkl', data=pkl_data, overwrite=True)
 
 def download_index(container_name: str, faiss_index: str, embeddings):
+    """
+    Downloads Faiss index files from Azure Blob Storage, merges them into a single index,
+    and returns the merged FAISS vector database.
+
+    Parameters:
+    -----------
+    container_name : str
+        Name of the Azure Blob Storage container where the index files are stored.
+    faiss_index : str
+        Directory path to save the downloaded Faiss index files locally.
+    embeddings : object
+        Embeddings object used to initialize the FAISS vector database.
+
+    Returns:
+    --------
+    vector_db : FAISS
+        Merged FAISS vector database loaded with the downloaded index files.
+
+    Notes:
+    ------
+    This function assumes that the Faiss index files in Azure Blob Storage are under the
+    'faiss_index' directory within the specified `container_name`. It downloads these files
+    to the local `faiss_index` directory, merges them into a single FAISS vector database,
+    and returns the merged database.
+
+    Example:
+    --------
+    >>> embeddings = OllamaEmbeddings(model="my_model", base_url="https://ollama-host.com")
+    >>> vector_db = download_index("my-container", "/local/path/to/faiss_index", embeddings)
+    """
+
     # Ensure download directory exists
     if not os.path.exists(faiss_index):
         os.makedirs(faiss_index)
@@ -91,6 +224,22 @@ def download_index(container_name: str, faiss_index: str, embeddings):
 
 
 def get_all_usernames():
+    """
+    Retrieves all usernames and corresponding passwords from Cosmos DB.
+
+    Returns:
+    --------
+    list
+        A list of tuples containing (username, password).
+
+    Raises:
+    ------
+    exceptions.CosmosHttpResponseError
+        If there is an error response from Cosmos DB.
+    Exception
+        For any other unexpected errors.
+    """
+
     try:
         # Initialize the Cosmos client
         client = CosmosClient(COSMOS_DB_URI, ensure_correct_padding(COSMOS_DB_KEY))
@@ -111,10 +260,10 @@ def get_all_usernames():
 
         return usernames
     except exceptions.CosmosHttpResponseError as e:
-        print(f"An error occurred with Cosmos DB: {str(e)}")
+        logger.error(f"An error occurred with Cosmos DB: {str(e)}")
         return []
     except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
+        logger.error(f"An unexpected error occurred: {str(e)}")
         return []
 
 # Generate unique ids for each model request
@@ -127,6 +276,22 @@ def generate_unique_id() -> str:
 
 # Function to authenticate user based on username
 def authenticate_user(username: str, users_list: list):
+    """
+    Authenticate a user based on username against a list of user credentials.
+
+    Parameters:
+    -----------
+    username : str
+        The username to authenticate.
+    users_list : list
+        A list of tuples where each tuple contains (userid, password) pairs.
+
+    Returns:
+    --------
+    bool
+        True if the username exists in the users_list, False otherwise.
+    """
+
     for username in users_list:
         if username:
            return True

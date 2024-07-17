@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 # Class to upload generic inputs for the models
 class GenericInputs:
+    """
+    Represents generic inputs for model processing.
+    """
     def __init__(self, gen_system_prompt, gen_image_prompt, gen_text_prompt):
         self.gen_system_prompt = gen_system_prompt
         self.gen_image_prompt = gen_image_prompt
@@ -40,11 +43,43 @@ class GenericInputs:
 
 # MultiModal Use Case
 class MultiModalModel(GenericInputs):
+    """
+    Represents a multi-modal model processing instance inheriting from GenericInputs.
+    """
     def __init__(self, input_text: InputText, gen_system_prompt: str, gen_image_prompt: str, gen_text_prompt: str):
+        """
+        Initialize the MultiModalModel with input text and generic prompts.
+        """
         super().__init__(gen_system_prompt, gen_image_prompt, gen_text_prompt)
         self.input_text = input_text
     
     def execute_model(self, file_path=None, document_file=None):
+        """
+        Execute the multi-modal model processing with optional file inputs.
+
+        This method prepares the input messages, including system and user prompts,
+        optionally downloading and encoding an image, and interacts with an external
+        model to obtain a response. It stores the processed data along with a unique
+        request ID in the application's storage.
+
+        Parameters:
+        -----------
+        file_path : str or None, optional
+            The path to the file to be processed (default is None).
+        document_file : UploadFile or None, optional
+            The document file to be processed (default is None).
+
+        Returns:
+        --------
+        dict
+            A dictionary containing the request ID and processed data.
+
+        Raises:
+        -------
+        HTTPException
+            If there's an error processing the request, such as model loading failure
+            or issues with the image URL (status_code 500 or 400).
+        """
         if self.input_text.system_prompt is None:
             self.input_text.system_prompt = self.gen_system_prompt
         if self.input_text.user_prompt is None:
@@ -111,7 +146,18 @@ class MultiModalModel(GenericInputs):
 
 # Rag Use Case
 class RagModel(GenericInputs):
+    """
+    Represents a RAG (Retrieval-Augmented Generation) model processing instance inheriting from GenericInputs.
+    """
     def __init__(self, input_text: InputText):
+        """
+        Initialize the RagModel with input text and necessary components.
+
+        Parameters:
+        -----------
+        input_text : InputText
+            The input text containing model parameters and prompts.
+        """
         self.input_text = input_text
         self.text_splitter = CharacterTextSplitter(chunk_size=1024, chunk_overlap=100)
         self.prompt = ChatPromptTemplate.from_template("""
@@ -124,6 +170,29 @@ class RagModel(GenericInputs):
             Question: {input}""")
     
     def execute_model(self, file_paths, document_files):
+        """
+        Execute the RAG model processing with optional file inputs.
+
+        This method manages document loading, indexing, querying, and response retrieval using
+        the RAG model and associated components.
+
+        Parameters:
+        -----------
+        file_paths : list of str or None
+            List of file paths to be processed (default is None).
+        document_files : list of UploadFile or None
+            List of document files to be processed (default is None).
+
+        Returns:
+        --------
+        dict
+            A dictionary containing the processed data or confirmation of operation.
+
+        Raises:
+        -------
+        HTTPException
+            If there's an error processing the request (status_code 500).
+        """
         #Loading embedding
         embeddings = OllamaEmbeddings(model=self.input_text.model, base_url=ollama_host)
         model = ChatOllama(model=self.input_text.model, base_url=ollama_host)
