@@ -4,11 +4,11 @@ pydantic
 ollama
 requests
 gradio
-langchain
-langchain_community
 fastembed
 pypdf
-faiss-cpu
 python-multipart
 azure.storage.blob
 azure-cosmos
+chromadb
+langchain
+langchain_community

@@ -5,8 +5,9 @@ from fastapi import HTTPException
 from dotenv import load_dotenv
 import logging
 from azure.cosmos import CosmosClient, exceptions
-from langchain_community.vectorstores import FAISS
+import chromadb
 import uuid
+import json
 
 load_dotenv()
 
@@ -129,99 +130,64 @@ def upload_documents(container_name: str, filepath:str, filename: str):
     except AzureError as e:
         raise HTTPException(status_code=500, detail=f"AzureError: {str(e)}")
 
-def upload_index(container_name: str, faiss_index: str, filename: str):
+def save_collection(container_name: str, db_path: str, collection_name: str, chroma_json_object: dict):
     """
-    Uploads a Faiss index and its corresponding pickle file to Azure Blob Storage.
+    Save a collection (in JSON format) to Azure Blob Storage.
 
-    Parameters:
-    -----------
+    This function uploads a collection, which is represented as a JSON object, to a specified Azure Blob Storage container. 
+    The collection is saved with a specific path and filename.
+
+    Parameters
+    ----------
     container_name : str
-        Name of the Azure Blob Storage container where the files will be uploaded.
-    faiss_index : str
-        Directory path where the Faiss index files are located locally.
-    filename : str
-        Name to assign to the Faiss index files in Azure Blob Storage.
+        The name of the Azure Blob Storage container where the collection will be saved.
+    
+    db_path : str
+        The path within the container where the collection will be stored.
+    
+    collection_name : str
+        The name of the collection file to be created in the specified path. The file will be saved with a `.json` extension.
+    
+    chroma_json_object : dict
+        The collection data to be saved. It should be a dictionary that will be converted to JSON format before uploading.
 
-    Notes:
-    ------
-    This function assumes that the Faiss index and its corresponding pickle file
-    are located in the specified `faiss_index` directory locally. It uploads these
-    files to Azure Blob Storage under the 'faiss_index' directory with the specified
-    `filename`.
-
-    Example:
-    --------
-    >>> upload_index("my-container", "/local/path/to/faiss_index", "index1")
     """
 
     container_client = blob_service_client.get_container_client(container=container_name)
-    with open(f'{faiss_index}/{filename}.faiss', "rb") as faiss_file:
-        faiss_data = faiss_file.read()
-        container_client.upload_blob(name=f'faiss_index/{filename}.faiss', data=faiss_data, overwrite=True)
-    with open(f'{faiss_index}/{filename}.pkl', "rb") as faiss_pkl:
-        pkl_data = faiss_pkl.read()
-        container_client.upload_blob(name=f'faiss_index/{filename}.pkl', data=pkl_data, overwrite=True)
+    container_client.upload_blob(name=f'{db_path}/{collection_name}', data=json.dumps(chroma_json_object), overwrite=True)
 
-def download_index(container_name: str, faiss_index: str, embeddings):
+def load_collection(container_name: str, db_path: str, collection_name: str):
     """
-    Downloads Faiss index files from Azure Blob Storage, merges them into a single index,
-    and returns the merged FAISS vector database.
+    Load a collection from Azure Blob Storage.
 
-    Parameters:
-    -----------
+    This function downloads a collection, represented as a JSON object, from a specified Azure Blob Storage container.
+    The collection is loaded from a specific path and filename.
+
+    Parameters
+    ----------
     container_name : str
-        Name of the Azure Blob Storage container where the index files are stored.
-    faiss_index : str
-        Directory path to save the downloaded Faiss index files locally.
-    embeddings : object
-        Embeddings object used to initialize the FAISS vector database.
-
-    Returns:
-    --------
-    vector_db : FAISS
-        Merged FAISS vector database loaded with the downloaded index files.
-
-    Notes:
-    ------
-    This function assumes that the Faiss index files in Azure Blob Storage are under the
-    'faiss_index' directory within the specified `container_name`. It downloads these files
-    to the local `faiss_index` directory, merges them into a single FAISS vector database,
-    and returns the merged database.
-
-    Example:
-    --------
-    >>> embeddings = OllamaEmbeddings(model="my_model", base_url="https://ollama-host.com")
-    >>> vector_db = download_index("my-container", "/local/path/to/faiss_index", embeddings)
+        The name of the Azure Blob Storage container from which the collection will be downloaded.
+    
+    db_path : str
+        The path within the container where the collection is stored. This path will also be created locally if it does not exist.
+    
+    collection_name : str
+        The name of the collection file to be downloaded from the specified path. The file is expected to be in JSON format.
+    
+    Returns
+    -------
+    dict
+        The collection data loaded from the Azure Blob Storage, returned as a dictionary.
     """
-
+    
     # Ensure download directory exists
-    if not os.path.exists(faiss_index):
-        os.makedirs(faiss_index)
+    if not os.path.exists(db_path):
+        os.makedirs(db_path)
 
-    container_client = blob_service_client.get_container_client(container_name)
-    blobs = container_client.list_blobs(name_starts_with=faiss_index)
-    idx_names = []
-    
-    for blob in blobs:
-        filename = os.path.split(blob.name)[-1]
-        blob_client = container_client.get_blob_client(blob.name)
-        with open(os.path.join(faiss_index,filename), "wb") as download_file:
-            download_file.write(blob_client.download_blob().readall())
-        if '.faiss' in filename:
-            idx_names.append(filename.removesuffix('.faiss'))
-    
-    vector_db = None
-    # Merge all indexes
-    for idx in idx_names:
-        if not vector_db:
-            # Load the index to FAISS db
-            vector_db = FAISS.load_local("faiss_index", index_name=idx, embeddings=embeddings, allow_dangerous_deserialization=True)
-        else:
-            tmp_vector_db = FAISS.load_local("faiss_index", index_name=idx, embeddings=embeddings, allow_dangerous_deserialization=True)
-            vector_db.merge_from(tmp_vector_db)
-    
-    return vector_db
-
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=f'{db_path}/{collection_name}')
+    downloader = blob_client.download_blob(max_concurrency=1, encoding='UTF-8')
+    blob_text = downloader.readall()
+    return json.loads(blob_text)
 
 def get_all_usernames():
     """

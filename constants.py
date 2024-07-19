@@ -15,12 +15,15 @@ gen_context = ""
 mm_models = ["llama3", "mistral",  "llava:13b", "gemma2"]
 # Rag models
 rag_models = ["mistral:7b-instruct", "gemma:7b", "llama3", "mistral",]
-rag_input_choices = ["Upload a Document to the knowledge base", "Ask a question to the knowledge base", "Run a similarity search and return the appropiate documents"]
+rag_input_choices = ["Upload one or more documents to the knowledge base", "Ask a question to the knowledge base"]
+embedding_models = ["mxbai-embed-large", "nomic-embed-text", "all-minilm"]
 
 # Create Pydantic classes
 class InputText(BaseModel):
     model: str
+    embed_model: str | None
     use_case: str
+    collection_name: str | None
     system_prompt: str | None
     user_prompt: str | None
     image_url: str | None

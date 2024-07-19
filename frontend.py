@@ -1,6 +1,6 @@
 import gradio as gr
 import requests
-from constants import mm_models, rag_models, rag_input_choices
+from constants import mm_models, rag_models, rag_input_choices, embedding_models
 import os
 import logging
 from dotenv import load_dotenv
@@ -44,7 +44,9 @@ def process_mm_request(model, use_case, request: gr.Request, system_prompt=None,
         
     payload = {
         "model": model,
+        "embed_model": None,
         "use_case": use_case,
+        "collection_name": None,
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,
         "image_url": image_url,
@@ -60,7 +62,7 @@ def process_mm_request(model, use_case, request: gr.Request, system_prompt=None,
     else:
         return {"error": response.text}
 
-def process_rag_request(model, use_case, request: gr.Request, user_prompt, input_choice, files=None):
+def process_rag_request(model, embed_model, use_case, request: gr.Request, collection_name, user_prompt, input_choice, files=None):
     """
     Send a POST request to a FastAPI backend for processing RAG (Retrieval-Augmented Generation) requests.
 
@@ -89,7 +91,9 @@ def process_rag_request(model, use_case, request: gr.Request, user_prompt, input
     
     payload = {
         "model": model,
+        "embed_model": embed_model,
         "use_case": use_case,
+        "collection_name": collection_name,
         "system_prompt": None,
         "user_prompt": user_prompt,
         "image_url": None,
@@ -156,10 +160,8 @@ def update_input_components(choice):
 
     if choice == "Ask a question to the knowledge base":
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=True)
-    elif choice == "Upload a Document to the knowledge base":
+    elif choice == "Upload one or more documents to the knowledge base":
         return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
-    elif choice == "Run a similarity search and return the appropiate documents":
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
 
 # Create Gradio interface
 with gr.Blocks() as demo:
@@ -178,15 +180,17 @@ with gr.Blocks() as demo:
     
     with gr.Tab("Rag Use Case"):
         # Define Gradio components for RAG model processing
-        rag_model_input = gr.Dropdown(label="Model", choices=rag_models)
+        rag_model_input = gr.Dropdown(label="Ollama model", choices=rag_models)
+        rag_embed_model_input = gr.Dropdown(label="Embedding model", choices=embedding_models)
         rag_use_case = gr.Textbox(label="Use Case", value="rag", visible=False)
+        rag_collection_name = gr.Textbox(label="Collection name", placeholder="vaccines")
         rag_input_choice = gr.Dropdown(label="Input Type", choices=rag_input_choices)
         rag_text_input = gr.Textbox(label="User Query", placeholder="Question: Can you summarize [topic]? / Similarity Search: Return the documents that talk about [topic]", visible=False)
         rag_file_input = gr.Files(label="Upload Documents", type="filepath", visible=False)
         rag_out = gr.JSON()
         rag_button = gr.Button("Submit")
         # Update visibility of text and file input based on dropdown selection
-        rag_input_choice.change(update_input_components, inputs=[rag_input_choice], outputs=[rag_text_input, rag_file_input, rag_text_input])
+        rag_input_choice.change(update_input_components, inputs=[rag_input_choice], outputs=[rag_text_input, rag_file_input])
 
     with gr.Tab("ID Request Retrieval"):
         # Define Gradio components for model retrieval
@@ -195,7 +199,7 @@ with gr.Blocks() as demo:
         ret_out = gr.JSON()
    
     mm_button.click(process_mm_request, inputs=[mm_model_input, mm_use_case, mm_system_prompt_input, mm_user_prompt_input, mm_image_url_input], outputs=mm_out)
-    rag_button.click(process_rag_request, inputs=[rag_model_input, rag_use_case, rag_text_input, rag_input_choice, rag_file_input], outputs=rag_out)
+    rag_button.click(process_rag_request, inputs=[rag_model_input, rag_embed_model_input, rag_use_case, rag_collection_name, rag_text_input, rag_input_choice, rag_file_input], outputs=rag_out)
     ret_button.click(retrieve_request, inputs=request_id_input, outputs=ret_out)
 
 # Launch the combined interface
