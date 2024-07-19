@@ -8,17 +8,12 @@ from io import BytesIO
 import base64
 import os
 from typing import Dict
-from langchain_community.vectorstores import FAISS
-from langchain_community.chat_models import ChatOllama
-from langchain_community.embeddings.ollama import OllamaEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_retrieval_chain
 from dotenv import load_dotenv
-from utils import upload_documents, upload_index, download_index, generate_unique_id
+from utils import upload_documents, save_collection, load_collection, generate_unique_id
 from constants import InputText
+import ollama
+import chromadb
 load_dotenv()
 
 # Load env variables
@@ -158,16 +153,7 @@ class RagModel(GenericInputs):
             The input text containing model parameters and prompts.
         """
         self.input_text = input_text
-        self.text_splitter = CharacterTextSplitter(chunk_size=1024, chunk_overlap=100)
-        self.prompt = ChatPromptTemplate.from_template("""
-            Answer the following question based only on the provided context:
 
-            <context>
-            {context}
-            </context>
-
-            Question: {input}""")
-    
     def execute_model(self, file_paths, document_files):
         """
         Execute the RAG model processing with optional file inputs.
@@ -192,66 +178,82 @@ class RagModel(GenericInputs):
         HTTPException
             If there's an error processing the request (status_code 500).
         """
-        #Loading embedding
-        embeddings = OllamaEmbeddings(model=self.input_text.model, base_url=ollama_host)
-        model = ChatOllama(model=self.input_text.model, base_url=ollama_host)
+        client = chromadb.PersistentClient(path="chromadb/")
         # Check if model is loaded into container
         r = requests.get(f'{ollama_host}/api/tags')
-        if self.input_text.model not in str(r.content):
-            logger.info(f'Model is not loaded into container. Loading model...')
-            # Define the endpoint URL for the Ollama-container
-            ollama_url = f"{ollama_host}/api/pull"
-            # Prepare the payload with the model name
-            payload = {"model": self.input_text.model}
-            # Send the POST request to the Ollama-container
-            requests.post(ollama_url, json=payload)
-            logger.info(f'Model {self.input_text.model} loaded')
+        for model in [self.input_text.embed_model, self.input_text.model]:
+            if model not in str(r.content):
+                logger.info(f'Model is not loaded into container. Loading model...')
+                # Define the endpoint URL for the Ollama-container
+                ollama_url = f"{ollama_host}/api/pull"
+                # Prepare the payload with the model name
+                payload = {"model": model}
+                # Send the POST request to the Ollama-container
+                requests.post(ollama_url, json=payload)
+                logger.info(f'Model {model} loaded')
         try:
             if file_paths:
                 logger.info(f'Loading Files...')
                 counter = 0
                 for file_path in file_paths:
-                    # Load documents locally
+                    # Create chromadb collection
+                    collection = client.create_collection(name=document_files[counter].filename)
+                    # Load documents locally and split
                     loader = PyPDFLoader(file_path)
-                    pages = loader.load_and_split()
+                    documents = loader.load_and_split()
                     # Save them permanently in Azure Container
                     upload_documents(self.input_text.username, file_path, document_files[counter].filename)
-                    logger.info(f"Loaded {len(pages)} pages")
-                    # Split the Text into Individual Questions
-                    documents = self.text_splitter.split_documents(pages)
-                    #Create vector store
-                    vector_store_db = FAISS.from_documents(documents=documents, embedding=embeddings)
-                    vector_store_db.save_local(folder_path="faiss_index", index_name=document_files[counter].filename)
-                    # Save vector store index in Azure
-                    upload_index(self.input_text.username, "faiss_index", document_files[counter].filename)
+                    logger.info(f"Loaded {len(documents)} pages")
+                    # store each document in a vector embedding database
+                    for i, d in enumerate(documents):
+                        # Convert document to a JSON-serializable format
+                        document_text = d.page_content if hasattr(d, 'page_content') else str(d)
+                        response = ollama.embeddings(model=self.input_text.embed_model, prompt=document_text)
+                        embedding = response["embedding"]
+                        collection.add(
+                            ids=[str(i)],
+                            embeddings=[embedding],
+                            documents=[document_text]
+                        )
+                    # # Save vector store index in Azure
+                    save_collection(self.input_text.username, "chromadb", self.input_text.collection_name, collection.get(include=['embeddings', 'documents', 'metadatas']))
                     counter =+ 1
                 return {'Documents loaded succesfully'}
             else:
-                # Download index from Azure
-                logger.info(f'Downloading Index...')
-                vector_store_db = download_index(self.input_text.username, "faiss_index", embeddings)
-                logger.info('Vector store has been created')
-                if self.input_text.input_choice == "Ask a question to the knowledge base":
-                    # Retrieve the information
-                    retriever = vector_store_db.as_retriever()
-                    # Query the vector store
-                    document_chain = create_stuff_documents_chain(model, self.prompt)
-                    chain = create_retrieval_chain(retriever, document_chain)
-                    result = chain.invoke({"input": self.input_text.user_prompt})
-                    # Provide response
-                    sources = []
-                    for doc in result['context']:
-                        sources.append({"Source":doc.metadata["source"]})
-                    # Return data with its request_id 
-                    request_id = generate_unique_id()
-                    storage[request_id] = {'data': result["answer"], 'Sources': json.dumps(sources)}
-                    return {"id": request_id, 'data': result["answer"], 'Sources': sources}
-                else:
-                    result = vector_store_db.similarity_search_with_score(self.input_text.user_prompt)
-                    # Return data with its request_id 
-                    request_id = generate_unique_id()
-                    storage[request_id] = {'data': str(result)}
-                    return {"id": request_id, 'data': str(result)}
+                try:
+                    # Load collection
+                    logger.info('Loading collection...')
+                    collection = client.get_collection(self.input_text.collection_name,)
+                except Exception as e:
+                    # Download collection from Azure
+                    logger.info(f'{str(e)}. Downloading collection...')
+                    json_col = load_collection(self.input_text.username, "chromadb", self.input_text.collection_name,)
+                    collection = client.create_collection(self.input_text.collection_name,)
+                    collection.add(
+                        embeddings = json_col['embeddings'],
+                        documents = json_col['documents'],
+                        metadatas = json_col['metadatas'],
+                        ids = json_col['ids'])
+                # Generate an embedding for the prompt and retrieve the most relevant doc
+                response = ollama.embeddings(
+                prompt=self.input_text.user_prompt,
+                model=self.input_text.embed_model
+                )
+                results = collection.query(
+                query_embeddings=[response["embedding"]],
+                n_results=1
+                )
+                data = results['documents'][0][0]
+                # Provide response
+                output = ollama.generate(
+                model=self.input_text.model,
+                prompt=f"Using this data: {data}. Respond to this prompt: {self.input_text.user_prompt}"
+                )
+
+                # Return data with its request_id 
+                request_id = generate_unique_id()
+                storage[request_id] = {'data': output['response']}
+                return{"id": request_id, 'data': output['response']}
         except Exception as e:
             logger.info(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))

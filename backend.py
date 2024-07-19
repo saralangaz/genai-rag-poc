@@ -25,7 +25,9 @@ storage: Dict[str, Dict] = {}
 # Endpoint to process the model request
 @app.post("/api/process")
 async def process(model: str = Form(...),
+                  embed_model: Optional[str] = Form(None),
                   use_case: str = Form(...),
+                  collection_name: Optional[str] = Form(None),
                   system_prompt: Optional[str] = Form(None),
                   user_prompt: Optional[str] = Form(None),
                   image_url: Optional[str] = Form(None),
@@ -72,7 +74,9 @@ async def process(model: str = Form(...),
     # Assign the received data to input text
     input_text = InputText(
         model=model,
+        embed_model=embed_model,
         use_case=use_case,
+        collection_name=collection_name,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         image_url=image_url,
