@@ -1,10 +1,11 @@
 import gradio as gr
 import requests
-from constants import mm_models, rag_models, rag_input_choices, embedding_models
+from constants import mm_models, rag_models
 import os
 import logging
 from dotenv import load_dotenv
 from utils import get_all_usernames
+import json
 load_dotenv()
 
 # Load environment variables
@@ -15,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define a function to process the request
-def process_mm_request(model, use_case, request: gr.Request, system_prompt=None, user_prompt=None, image_url=None):
+def process_mm_request(input, request: gr.Request):
     """
     Send a POST request to a FastAPI backend for processing multi-modal requests.
 
@@ -40,29 +41,38 @@ def process_mm_request(model, use_case, request: gr.Request, system_prompt=None,
         JSON response from the FastAPI backend.
     """
 
-    url = f"{backend_host}/api/process"  # Adjust this to your FastAPI server address
-        
-    payload = {
-        "model": model,
-        "embed_model": None,
-        "use_case": use_case,
-        "collection_name": None,
-        "system_prompt": system_prompt,
-        "user_prompt": user_prompt,
-        "image_url": image_url,
-        "username": request.username,
-        "input_choice": None
-    }
-    logger.info(f'Info loaded: Payload is {payload}')
-    
-    # Send POST request to FastAPI backend
-    response = requests.post(url, data=payload, files=None)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return {"error": response.text}
+    try:
+        url = f"{backend_host}/api/process"  # Adjust this to your FastAPI server address
+        input = json.loads(input)
 
-def process_rag_request(model, embed_model, use_case, request: gr.Request, collection_name, user_prompt, input_choice, files=None):
+        if input.get("model") not in mm_models:
+            return {'error': f'The model specified must be one of: {mm_models}'}
+        
+        payload = {
+            "model": input.get("model"),
+            "use_case": "multimodal",
+            "collection_name": None,
+            "system_prompt": input.get("system_prompt"),
+            "user_prompt": input.get("user_prompt"),
+            "image_url": input.get("image_url"),
+            "username": request.username,
+            "input_choice": None
+        }
+        logger.info(f'Info loaded: Payload is {payload}')
+        
+        # Send POST request to FastAPI backend
+        response = requests.post(url, data=payload, files=None, stream=True)
+        text_response = ""
+        collected_data = ""
+        for line in response.iter_lines():
+            decoded_line = line.decode('utf-8')
+            if decoded_line != None:
+                collected_data += decoded_line
+                yield collected_data
+    except Exception as e:
+            return {'error': f'{str(e)}'}
+    
+def process_rag_request(input: dict, request: gr.Request, files=None):
     """
     Send a POST request to a FastAPI backend for processing RAG (Retrieval-Augmented Generation) requests.
 
@@ -88,17 +98,19 @@ def process_rag_request(model, embed_model, use_case, request: gr.Request, colle
     """
         
     url = f"{backend_host}/api/process"  # Adjust this to your FastAPI server address
-    
+    input = json.loads(input)
+    if input.get("model") not in rag_models:
+            return {'error': f'The model specified must be one of: {rag_models}'}
+
     payload = {
-        "model": model,
-        "embed_model": embed_model,
-        "use_case": use_case,
-        "collection_name": collection_name,
+        "model": input.get("model"),
+        "use_case": "rag",
+        "collection_name": input.get("collection_name"),
         "system_prompt": None,
-        "user_prompt": user_prompt,
+        "user_prompt": input.get("user_prompt"),
         "image_url": None,
         "username": request.username,
-        "input_choice": input_choice
+        "input_choice": input.get("input_choice")
     }
     logger.info(f'Info loaded: Payload is {payload}')
     
@@ -141,65 +153,50 @@ def retrieve_request(request_id):
         return response.json()
     else:
         return {"error": response.text}
-    
-# Define a function to update the visibility of inputs based on dropdown selection
-def update_input_components(choice):
-    """
-    Update the visibility of input components based on the selected choice.
-
-    Parameters:
-    -----------
-    choice : str
-        The selected choice determining which input components to display.
-
-    Returns:
-    --------
-    tuple of gradio.Component
-        Tuple containing Gradio update objects to adjust the visibility of input components.
-    """
-
-    if choice == "Ask a question to the knowledge base":
-        return gr.update(visible=True), gr.update(visible=False), gr.update(visible=True)
-    elif choice == "Upload one or more documents to the knowledge base":
-        return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
 
 # Create Gradio interface
 with gr.Blocks() as demo:
     gr.Markdown("Choose the Use Case for this demo.")
     # Define Gradio components for multi-modal m:odel processing
-    with gr.Tab("Multi-Modal Use Case"):
-        mm_model_input = gr.Dropdown(label="Model", choices=mm_models)
-        mm_use_case = gr.Textbox(label="Use Case", value="multimodal", visible=False)
-        mm_system_prompt_input = gr.Textbox(label="System Prompt", placeholder="You are an intelligent assistant that helps generate structured data.")
-        mm_user_prompt_input = gr.Textbox(label="User Prompt", placeholder="Generate a set of JSON data for a hypothetical e-commerce website."
-                                    "The data should include fields for product name, price, and availability." 
-                                    "The output should only include the data. Don't include any other message.")
-        mm_image_url_input = gr.Textbox(label="Image URL", placeholder="https://example.com/image.png")
+    with gr.Tab("Ask the chatbot"):
+        gr.Markdown("**Multi-Modal Use Case:** This tab is used to generate random data, provide information about an image, etc. "
+                    "Mandatory inputs: model type (llama2:7b, llama3:8b, llava:7b). Optional inputs: system prompt, user prompt, image URL. "
+                    "Structure:")
+        gr.Markdown("""```
+                    {"model": "llama2:7b",
+                     "system_prompt": "You are an intelligent assistant that helps generate structured data.",
+                     "user_prompt":"Generate a set of JSON data for a hypothetical e-commerce website. The data should include fields for product name, price, and availability",
+                     "image_url": ""}
+                ```""")
+        mm_input = gr.Textbox(label="Inputs")
         mm_button = gr.Button("Submit")
-        mm_out = gr.JSON()
+        mm_out = gr.Textbox(label="Model Response", lines=10)
     
-    with gr.Tab("Rag Use Case"):
+    with gr.Tab("Upload documents and ask the Knowledge Base"):
         # Define Gradio components for RAG model processing
-        rag_model_input = gr.Dropdown(label="Ollama model", choices=rag_models)
-        rag_embed_model_input = gr.Dropdown(label="Embedding model", choices=embedding_models)
-        rag_use_case = gr.Textbox(label="Use Case", value="rag", visible=False)
-        rag_collection_name = gr.Textbox(label="Collection name", placeholder="vaccines")
-        rag_input_choice = gr.Dropdown(label="Input Type", choices=rag_input_choices)
-        rag_text_input = gr.Textbox(label="User Query", placeholder="Question: Can you summarize [topic]? / Similarity Search: Return the documents that talk about [topic]", visible=False)
-        rag_file_input = gr.Files(label="Upload Documents", type="filepath", visible=False)
-        rag_out = gr.JSON()
+        gr.Markdown("**Rag Use Case:** This tab is used to Upload documents to a Vectorial Database and ask questions or extract information from those documents. "
+                    "Mandatory inputs: model type (llama2:7b, llama3:8b, mistral:7b), collection name and input choice (Document Upload or User Query). Embeddings will be stored in a vectorial database under a collection name. "
+                    "You can save all the documents you want inside the same collection name. "
+                    "Structure:")
+        gr.Markdown("""```
+            {"model": "llama2:7b",
+             "collection_name": "news_2024",
+             "input_choice": "Upload one or more documents to the knowledge base" / "Ask a question to the knowledge base"
+             "user_prompt": "" / "can you summarize the news of June?"}
+        ```""")
+        rag_input = gr.Textbox(label="Inputs")
+        rag_file_input = gr.Files(label="Upload Documents", type="filepath")
+        rag_out = gr.Textbox(label="Model Response", lines=10)
         rag_button = gr.Button("Submit")
-        # Update visibility of text and file input based on dropdown selection
-        rag_input_choice.change(update_input_components, inputs=[rag_input_choice], outputs=[rag_text_input, rag_file_input])
 
     with gr.Tab("ID Request Retrieval"):
         # Define Gradio components for model retrieval
         request_id_input = gr.Textbox(label="Request ID to Retrieve", placeholder="550e8400-e29b-41d4-a716-446655440000")
         ret_button = gr.Button("Retrieve")
-        ret_out = gr.JSON()
+        ret_out = gr.Textbox(label="Model Response")
    
-    mm_button.click(process_mm_request, inputs=[mm_model_input, mm_use_case, mm_system_prompt_input, mm_user_prompt_input, mm_image_url_input], outputs=mm_out)
-    rag_button.click(process_rag_request, inputs=[rag_model_input, rag_embed_model_input, rag_use_case, rag_collection_name, rag_text_input, rag_input_choice, rag_file_input], outputs=rag_out)
+    mm_button.click(process_mm_request, inputs=mm_input, outputs=mm_out)
+    rag_button.click(process_rag_request, inputs=[rag_input, rag_file_input], outputs=rag_out)
     ret_button.click(retrieve_request, inputs=request_id_input, outputs=ret_out)
 
 # Launch the combined interface

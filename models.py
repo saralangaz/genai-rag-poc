@@ -1,5 +1,4 @@
 from fastapi import HTTPException
-from ollama import Client
 import json
 import logging
 import requests
@@ -8,12 +7,15 @@ from io import BytesIO
 import base64
 import os
 from typing import Dict
-from langchain_community.document_loaders import PyPDFLoader
+from pypdf import PdfReader
+from langchain.text_splitter import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
 from dotenv import load_dotenv
 from utils import upload_documents, save_collection, load_collection, generate_unique_id
 from constants import InputText
 import ollama
 import chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+import timeit
 load_dotenv()
 
 # Load env variables
@@ -89,8 +91,6 @@ class MultiModalModel(GenericInputs):
         Aditional instructions:
         - Please, follow the instructions specified in this prompt. Don't do anything that was not requested in this prompt.
         """
-        client = Client(host=f'{ollama_host}/api/generate')
-
         try:
             # Prepare message
             messages = [ {'role': 'system', 'content': self.input_text.system_prompt},
@@ -110,29 +110,22 @@ class MultiModalModel(GenericInputs):
             raise HTTPException(status_code=400, detail="Error processing image URL")
         
         try:                
-            # Check if model is loaded into container
-            r = requests.get(f'{ollama_host}/api/tags')
-            if self.input_text.model not in str(r.content):
-                logger.info(f'Model is not loaded into container. Loading model...')
-                # Define the endpoint URL for the Ollama-container
-                ollama_url = f"{ollama_host}/api/pull"
-                # Prepare the payload with the model name
-                payload = {"model": self.input_text.model}
-                # Send the POST request to the Ollama-container
-                requests.post(ollama_url, json=payload)
-                logger.info(f'Model {self.input_text.model} loaded')
-
             # Call the external model
-            response = client.chat(model=self.input_text.model, messages=messages)
+            response = ollama.chat(model=self.input_text.model, messages=messages, stream=True)
             
             # Obtain the response from the model
-            data = response['message']['content']
-
-            # Return data with its request_id 
-            request_id = generate_unique_id()
-            storage[request_id] = {"username": self.input_text.username, "data": json.dumps(data)}
-            
-            return {"id": request_id, "data": data}
+            text_response = ""
+            collected_data = ""
+            for chunk in response:
+                content = chunk['message']['content']
+                if content != None:
+                    text_response += content
+                    collected_data = content
+                else:
+                    request_id = generate_unique_id()
+                    collected_data = {"id": request_id, "data": text_response}
+                
+                yield collected_data
         
         except Exception as e:
             logger.error(f"Error processing request: {e}")
@@ -154,7 +147,7 @@ class RagModel(GenericInputs):
         """
         self.input_text = input_text
 
-    def execute_model(self, file_paths, document_files):
+    async def execute_model(self, file_paths, document_files):
         """
         Execute the RAG model processing with optional file inputs.
 
@@ -179,51 +172,48 @@ class RagModel(GenericInputs):
             If there's an error processing the request (status_code 500).
         """
         client = chromadb.PersistentClient(path="chromadb/")
-        # Check if model is loaded into container
-        r = requests.get(f'{ollama_host}/api/tags')
-        for model in [self.input_text.embed_model, self.input_text.model]:
-            if model not in str(r.content):
-                logger.info(f'Model is not loaded into container. Loading model...')
-                # Define the endpoint URL for the Ollama-container
-                ollama_url = f"{ollama_host}/api/pull"
-                # Prepare the payload with the model name
-                payload = {"model": model}
-                # Send the POST request to the Ollama-container
-                requests.post(ollama_url, json=payload)
-                logger.info(f'Model {model} loaded')
+        embedding_function = SentenceTransformerEmbeddingFunction()
         try:
             if file_paths:
                 logger.info(f'Loading Files...')
                 counter = 0
                 for file_path in file_paths:
                     # Create chromadb collection
-                    collection = client.create_collection(name=document_files[counter].filename)
+                    collection = client.get_or_create_collection(name=document_files[counter].filename, embedding_function=embedding_function)
                     # Load documents locally and split
-                    loader = PyPDFLoader(file_path)
-                    documents = loader.load_and_split()
+                    loader = PdfReader(file_path)
+                    documents = [p.extract_text().strip() for p in loader.pages]
+                    # Filter the empty strings
+                    documents = [text for text in documents if text]
+                    # Split text
+                    character_splitter = RecursiveCharacterTextSplitter(
+                    separators=["\n\n", "\n", ". ", " ", ""],
+                    chunk_size=1000,
+                    chunk_overlap=0
+                    )
+                    character_split_texts = character_splitter.split_text('\n\n'.join(documents))
+                    # Transform splitted texts into tokens
+                    token_splitter = SentenceTransformersTokenTextSplitter(chunk_overlap=0, tokens_per_chunk=256)
+                    token_split_texts = []
+                    for text in character_split_texts:
+                        token_split_texts += token_splitter.split_text(text)
                     # Save them permanently in Azure Container
-                    upload_documents(self.input_text.username, file_path, document_files[counter].filename)
+                    upload_documents(self.input_text.username, file_path, f'{document_files[counter].filename}')
                     logger.info(f"Loaded {len(documents)} pages")
                     # store each document in a vector embedding database
-                    for i, d in enumerate(documents):
-                        # Convert document to a JSON-serializable format
-                        document_text = d.page_content if hasattr(d, 'page_content') else str(d)
-                        response = ollama.embeddings(model=self.input_text.embed_model, prompt=document_text)
-                        embedding = response["embedding"]
-                        collection.add(
-                            ids=[str(i)],
-                            embeddings=[embedding],
-                            documents=[document_text]
-                        )
+                    ids = [str(i) for i in range(len(token_split_texts))]
+                    collection.add(ids=ids, documents=token_split_texts)
                     # # Save vector store index in Azure
                     save_collection(self.input_text.username, "chromadb", self.input_text.collection_name, collection.get(include=['embeddings', 'documents', 'metadatas']))
                     counter =+ 1
                 return {'Documents loaded succesfully'}
             else:
                 try:
+                    start_time = timeit.default_timer()
+                    logger.info(f'Start time is {start_time}')
                     # Load collection
                     logger.info('Loading collection...')
-                    collection = client.get_collection(self.input_text.collection_name,)
+                    collection = client.get_collection(self.input_text.collection_name) 
                 except Exception as e:
                     # Download collection from Azure
                     logger.info(f'{str(e)}. Downloading collection...')
@@ -235,24 +225,18 @@ class RagModel(GenericInputs):
                         metadatas = json_col['metadatas'],
                         ids = json_col['ids'])
                 # Generate an embedding for the prompt and retrieve the most relevant doc
-                response = ollama.embeddings(
-                prompt=self.input_text.user_prompt,
-                model=self.input_text.embed_model
-                )
-                results = collection.query(
-                query_embeddings=[response["embedding"]],
-                n_results=1
-                )
-                data = results['documents'][0][0]
+                results = collection.query(query_texts=[self.input_text.user_prompt], n_results=5)
+                data = results['documents'][0]
                 # Provide response
                 output = ollama.generate(
                 model=self.input_text.model,
                 prompt=f"Using this data: {data}. Respond to this prompt: {self.input_text.user_prompt}"
                 )
-
                 # Return data with its request_id 
                 request_id = generate_unique_id()
                 storage[request_id] = {'data': output['response']}
+                end_time = timeit.default_timer()
+                logger.info(f'Total process time is {end_time - start_time}')
                 return{"id": request_id, 'data': output['response']}
         except Exception as e:
             logger.info(f"Error processing request: {e}")

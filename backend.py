@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 from constants import gen_system_prompt, gen_text_prompt, gen_image_prompt, InputText
 from utils import get_all_usernames, authenticate_user
 from models import MultiModalModel, RagModel
-load_dotenv()
+from fastapi.responses import StreamingResponse
+import asyncio
 
-# Load env variables
-ollama_host = os.getenv('OLLAMA_HOST', "http://ollama:11434")
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -22,10 +22,17 @@ app = FastAPI()
 # In-memory storage for simplicity
 storage: Dict[str, Dict] = {}
 
+async def astreamer(generator):
+    try:
+        for i in generator:
+            yield (i)
+            await asyncio.sleep(.1)
+    except asyncio.CancelledError as e:
+        raise ValueError
+
 # Endpoint to process the model request
 @app.post("/api/process")
 async def process(model: str = Form(...),
-                  embed_model: Optional[str] = Form(None),
                   use_case: str = Form(...),
                   collection_name: Optional[str] = Form(None),
                   system_prompt: Optional[str] = Form(None),
@@ -74,7 +81,6 @@ async def process(model: str = Form(...),
     # Assign the received data to input text
     input_text = InputText(
         model=model,
-        embed_model=embed_model,
         use_case=use_case,
         collection_name=collection_name,
         system_prompt=system_prompt,
@@ -83,6 +89,7 @@ async def process(model: str = Form(...),
         username=username,
         input_choice=input_choice
     )
+
     # Ensure the username in the request matches the authenticated user
     user_list = get_all_usernames()
     if not authenticate_user(input_text.username, user_list):
@@ -106,9 +113,8 @@ async def process(model: str = Form(...),
     else:
         process_request = RagModel(input_text)
     # Execute the request
-    response = process_request.execute_model(temp_file_paths, document_files)
 
-    return response
+    return StreamingResponse(astreamer(process_request.execute_model(temp_file_paths, document_files)), media_type="text/event-stream")
 
 # Endpoint to retrieve a previous model request
 @app.get("/api/retrieve/{request_id}")

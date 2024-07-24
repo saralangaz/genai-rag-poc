@@ -5,7 +5,6 @@ from fastapi import HTTPException
 from dotenv import load_dotenv
 import logging
 from azure.cosmos import CosmosClient, exceptions
-import chromadb
 import uuid
 import json
 
@@ -122,10 +121,9 @@ def upload_documents(container_name: str, filepath:str, filename: str):
         create_container_if_not_exists(container_name)
 
         # Create a blob client using the local file name as the name for the blob
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=f'documents/{filename}')
-
-        # Upload the file to Azure Blob Storage
-        blob_client.upload_blob(filepath, overwrite=True)
+        container_client = blob_service_client.get_container_client(container=container_name)
+        with open(filepath, mode="rb") as data:
+            container_client.upload_blob(name=f'documents/{filename}', data=data, overwrite=True)
         
     except AzureError as e:
         raise HTTPException(status_code=500, detail=f"AzureError: {str(e)}")

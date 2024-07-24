@@ -12,16 +12,13 @@ gen_user_query = ""
 gen_context = ""
 
 # Multi-modal models
-mm_models = ["llama3", "mistral",  "llava:13b", "gemma2"]
+mm_models = ["llama2:7b", "llama3:8b", "llava:7b"]
 # Rag models
-rag_models = ["mistral:7b-instruct", "gemma:7b", "llama3", "mistral",]
-rag_input_choices = ["Upload one or more documents to the knowledge base", "Ask a question to the knowledge base"]
-embedding_models = ["mxbai-embed-large", "nomic-embed-text", "all-minilm"]
+rag_models = ["llama2:7b", "llama3:8b", "mistral:7b"]
 
 # Create Pydantic classes
 class InputText(BaseModel):
     model: str
-    embed_model: str | None
     use_case: str
     collection_name: str | None
     system_prompt: str | None
