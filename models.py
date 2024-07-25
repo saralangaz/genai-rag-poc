@@ -147,7 +147,7 @@ class RagModel(GenericInputs):
         """
         self.input_text = input_text
 
-    async def execute_model(self, file_paths, document_files):
+    def execute_model(self, file_paths, document_files):
         """
         Execute the RAG model processing with optional file inputs.
 
@@ -209,8 +209,6 @@ class RagModel(GenericInputs):
                 return {'Documents loaded succesfully'}
             else:
                 try:
-                    start_time = timeit.default_timer()
-                    logger.info(f'Start time is {start_time}')
                     # Load collection
                     logger.info('Loading collection...')
                     collection = client.get_collection(self.input_text.collection_name) 
@@ -230,14 +228,22 @@ class RagModel(GenericInputs):
                 # Provide response
                 output = ollama.generate(
                 model=self.input_text.model,
-                prompt=f"Using this data: {data}. Respond to this prompt: {self.input_text.user_prompt}"
+                prompt=f"Using this data: {data}. Respond to this prompt: {self.input_text.user_prompt}",
+                stream=True
                 )
-                # Return data with its request_id 
-                request_id = generate_unique_id()
-                storage[request_id] = {'data': output['response']}
-                end_time = timeit.default_timer()
-                logger.info(f'Total process time is {end_time - start_time}')
-                return{"id": request_id, 'data': output['response']}
+                # Obtain the response from the model
+                text_response = ""
+                collected_data = ""
+                for chunk in output:
+                    content = chunk['message']['content']
+                    if content != None:
+                        text_response += content
+                        collected_data = content
+                    else:
+                        request_id = generate_unique_id()
+                        collected_data = {"id": request_id, "data": text_response}
+                    
+                    yield collected_data
         except Exception as e:
             logger.info(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))

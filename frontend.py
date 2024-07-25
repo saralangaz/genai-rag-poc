@@ -62,7 +62,6 @@ def process_mm_request(input, request: gr.Request):
         
         # Send POST request to FastAPI backend
         response = requests.post(url, data=payload, files=None, stream=True)
-        text_response = ""
         collected_data = ""
         for line in response.iter_lines():
             decoded_line = line.decode('utf-8')

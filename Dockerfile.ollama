@@ -1,0 +1,13 @@
+# Base image
+FROM ollama/ollama
+
+# Copy the entrypoint script into the image
+COPY entrypoint.sh /root/entrypoint.sh
+
+# Ensure the script is executable
+RUN chmod +x /root/entrypoint.sh
+
+EXPOSE 11434
+
+# Set the entrypoint
+ENTRYPOINT ["/bin/bash", "/root/entrypoint.sh"]
