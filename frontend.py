@@ -119,11 +119,14 @@ def process_rag_request(input: dict, request: gr.Request, files=None):
         for file in files:
             if file:
                 processed_files.append(('document_files', open(file.name, 'rb')))
-    response = requests.post(url, data=payload, files=processed_files)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return {"error": response.text}
+    # Send POST request to FastAPI backend
+    response = requests.post(url, data=payload, files=None, stream=True)
+    collected_data = ""
+    for line in response.iter_lines():
+        decoded_line = line.decode('utf-8')
+        if decoded_line != None:
+            collected_data += decoded_line
+            yield collected_data
 
 # Define a function to retrieve old requests
 def retrieve_request(request_id):
