@@ -187,6 +187,30 @@ def load_collection(container_name: str, db_path: str, collection_name: str):
     blob_text = downloader.readall()
     return json.loads(blob_text)
 
+def delete_documents(container_name: str, collection_name: str):
+    """
+    Deletes a blob from Azure Blob Storage.
+
+    Parameters
+    -------
+    - container_name (str): The name of the container.
+    - collection_name (str): The name of the blob to delete.
+
+    Returns
+    -------
+    No return
+    """
+    container_client = blob_service_client.get_container_client(container_name)
+    # Get a client to interact with the specified blob
+    blob_client = container_client.get_blob_client(f'chromadb/{collection_name}')
+    
+    # Check if the blob exists
+    if blob_client.exists():
+        # Delete the blob
+        blob_client.delete_blob()
+    else:
+        pass
+
 def get_all_usernames():
     """
     Retrieves all usernames and corresponding passwords from Cosmos DB.

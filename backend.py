@@ -32,14 +32,13 @@ async def astreamer(generator):
 
 # Endpoint to process the model request
 @app.post("/api/process")
-async def process(model: str = Form(...),
+async def process(model: str = Form(None),
                   use_case: str = Form(...),
                   collection_name: Optional[str] = Form(None),
                   system_prompt: Optional[str] = Form(None),
                   user_prompt: Optional[str] = Form(None),
                   image_url: Optional[str] = Form(None),
                   username: str = Form(...),
-                  input_choice: Optional[str] = Form(None),
                   document_files: List[UploadFile] = File(None)):
     """
     Process a request to interact with the Ollama model based on input parameters.
@@ -86,8 +85,7 @@ async def process(model: str = Form(...),
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         image_url=image_url,
-        username=username,
-        input_choice=input_choice
+        username=username
     )
 
     # Ensure the username in the request matches the authenticated user
@@ -110,11 +108,10 @@ async def process(model: str = Form(...),
     # Launch classes depending on the model input
     if input_text.use_case == "multimodal":
         process_request = MultiModalModel(input_text, gen_system_prompt, gen_image_prompt, gen_text_prompt)
+        return StreamingResponse(astreamer(process_request.execute_model(temp_file_paths, document_files)), media_type="text/event-stream")
     else:
         process_request = RagModel(input_text)
-    # Execute the request
-
-    return StreamingResponse(astreamer(process_request.execute_model(temp_file_paths, document_files)), media_type="text/event-stream")
+        return process_request.execute_model(temp_file_paths, document_files)
 
 # Endpoint to retrieve a previous model request
 @app.get("/api/retrieve/{request_id}")

@@ -10,12 +10,13 @@ from typing import Dict
 from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
 from dotenv import load_dotenv
-from utils import upload_documents, save_collection, load_collection, generate_unique_id
+from utils import upload_documents, save_collection, load_collection, generate_unique_id, delete_documents
 from constants import InputText
 import ollama
-import chromadb
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 import timeit
+import weaviate.classes as wvc
+from weaviate.classes.config import Property, DataType
+import weaviate
 load_dotenv()
 
 # Load env variables
@@ -171,79 +172,59 @@ class RagModel(GenericInputs):
         HTTPException
             If there's an error processing the request (status_code 500).
         """
-        client = chromadb.PersistentClient(path="chromadb/")
-        embedding_function = SentenceTransformerEmbeddingFunction()
+        client = weaviate.connect_to_local('weaviate')
         try:
-            if file_paths:
+            if self.input_text.use_case == 'upload':
                 logger.info(f'Loading Files...')
-                counter = 0
+                # Create weaviate collection
+                collection = client.collections.create(
+                name =self.input_text.collection_name, # Name of the data collection
+                properties=[
+                    Property(name="text", data_type=DataType.TEXT), # Name and data type of the property
+                    ],
+                )
                 for file_path in file_paths:
-                    # Create chromadb collection
-                    collection = client.get_or_create_collection(name=document_files[counter].filename, embedding_function=embedding_function)
-                    # Load documents locally and split
+                    # Load documents and split
                     loader = PdfReader(file_path)
                     documents = [p.extract_text().strip() for p in loader.pages]
                     # Filter the empty strings
                     documents = [text for text in documents if text]
-                    # Split text
-                    character_splitter = RecursiveCharacterTextSplitter(
-                    separators=["\n\n", "\n", ". ", " ", ""],
-                    chunk_size=1000,
-                    chunk_overlap=0
-                    )
-                    character_split_texts = character_splitter.split_text('\n\n'.join(documents))
-                    # Transform splitted texts into tokens
-                    token_splitter = SentenceTransformersTokenTextSplitter(chunk_overlap=0, tokens_per_chunk=256)
-                    token_split_texts = []
-                    for text in character_split_texts:
-                        token_split_texts += token_splitter.split_text(text)
-                    # Save them permanently in Azure Container
-                    upload_documents(self.input_text.username, file_path, f'{document_files[counter].filename}')
-                    logger.info(f"Loaded {len(documents)} pages")
-                    # store each document in a vector embedding database
-                    ids = [str(i) for i in range(len(token_split_texts))]
-                    collection.add(ids=ids, documents=token_split_texts)
-                    # # Save vector store index in Azure
-                    save_collection(self.input_text.username, "chromadb", self.input_text.collection_name, collection.get(include=['embeddings', 'documents', 'metadatas']))
-                    counter =+ 1
-                return {'Documents loaded succesfully'}
+                    with collection.batch.dynamic() as batch:
+                        for i, d in enumerate(documents):
+                            # Generate embeddings
+                            response = ollama.embeddings(model = "all-minilm",
+                                                        prompt = d)
+                            # Add data object with text and embedding
+                            batch.add_object(
+                                properties = {"text" : d},
+                                vector = response["embedding"],
+                            )
+                    client.close()
+                    return 'Documents uploaded'
+            elif self.input_text.use_case == 'delete':
+                # Delete Collection
+                logger.info('Deleting collection...')
+                client.collections.delete(self.input_text.collection_name)
+                client.close()
+                return 'Collection deleted'
             else:
-                try:
-                    # Load collection
-                    logger.info('Loading collection...')
-                    collection = client.get_collection(self.input_text.collection_name) 
-                except Exception as e:
-                    # Download collection from Azure
-                    logger.info(f'{str(e)}. Downloading collection...')
-                    json_col = load_collection(self.input_text.username, "chromadb", self.input_text.collection_name,)
-                    collection = client.create_collection(self.input_text.collection_name,)
-                    collection.add(
-                        embeddings = json_col['embeddings'],
-                        documents = json_col['documents'],
-                        metadatas = json_col['metadatas'],
-                        ids = json_col['ids'])
+                logger.info('Querying collection...')
+                collection = client.collections.get(self.input_text.collection_name)
                 # Generate an embedding for the prompt and retrieve the most relevant doc
-                results = collection.query(query_texts=[self.input_text.user_prompt], n_results=5)
-                data = results['documents'][0]
+                response = ollama.embeddings(
+                model = "all-minilm",
+                prompt = self.input_text.user_prompt,
+                )
+                results = collection.query.near_vector(near_vector = response["embedding"],
+                                                    limit = 1)
+                data = results.objects[0].properties['text']
                 # Provide response
                 output = ollama.generate(
                 model=self.input_text.model,
-                prompt=f"Using this data: {data}. Respond to this prompt: {self.input_text.user_prompt}",
-                stream=True
+                prompt=f"Using this data: {data}. Respond to this prompt: {self.input_text.user_prompt}"
                 )
-                # Obtain the response from the model
-                text_response = ""
-                collected_data = ""
-                for chunk in output:
-                    content = chunk['message']['content']
-                    if content != None:
-                        text_response += content
-                        collected_data = content
-                    else:
-                        request_id = generate_unique_id()
-                        collected_data = {"id": request_id, "data": text_response}
-                    
-                    yield collected_data
+                client.close()
+                return output['response']
         except Exception as e:
             logger.info(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))

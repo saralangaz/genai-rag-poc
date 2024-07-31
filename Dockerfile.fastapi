@@ -4,7 +4,7 @@ WORKDIR /code
 
 RUN pip install --no-cache-dir --upgrade pip \
   && pip install --no-cache-dir fastapi uvicorn pydantic ollama requests python-multipart \
-  azure.storage.blob azure-cosmos chromadb langchain pypdf sentence_transformers
+  azure.storage.blob azure-cosmos chromadb langchain pypdf sentence_transformers weaviate-client
 
 # 
 COPY ./backend.py /code/

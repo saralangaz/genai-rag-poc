@@ -6,12 +6,10 @@ RUN pip install --no-cache-dir --upgrade pip \
   && pip install --no-cache-dir gradio requests azure-cosmos fastapi azure.storage.blob
 
 # Copy
-COPY ./backend.py /code/
 COPY ./frontend.py /code/
 COPY ./constants.py /code/
 COPY ./utils.py /code/
 COPY ./.env /code/
-COPY ./models.py /code/
 
 # Expose port
 EXPOSE 7860

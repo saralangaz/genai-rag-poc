@@ -12,17 +12,16 @@ gen_user_query = ""
 gen_context = ""
 
 # Multi-modal models
-mm_models = ["llama2:7b", "llama3:8b", "llava:7b"]
+mm_models = ["llama2:7b", "llama3.1:8b", "llava:7b"]
 # Rag models
-rag_models = ["llama2:7b", "llama3:8b", "mistral:7b"]
+rag_models = ["llama2:7b", "llama3.1:8b", "mistral:7b"]
 
 # Create Pydantic classes
 class InputText(BaseModel):
-    model: str
+    model: str | None
     use_case: str
     collection_name: str | None
     system_prompt: str | None
     user_prompt: str | None
     image_url: str | None
     username: str
-    input_choice: str | None
