@@ -1,0 +1,40 @@
+# templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "weaviate.fullname" . }}
+  labels:
+    app: {{ include "weaviate.name" . }}
+spec:
+  replicas: {{ .Values.deployment.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "weaviate.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "weaviate.name" . }}
+    spec:
+      containers:
+      - name: weaviate
+        image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}"
+        command: {{ toYaml .Values.deployment.command | nindent 8 }}
+        ports:
+        - containerPort: 8080
+        - containerPort: 50051
+        resources:
+          requests:
+            memory: {{ .Values.deployment.resources.requests.memory }}
+            cpu: {{ .Values.deployment.resources.requests.cpu }}
+          limits:
+            memory: {{ .Values.deployment.resources.limits.memory }}
+            cpu: {{ .Values.deployment.resources.limits.cpu }}
+        env:
+        - name: QUERY_DEFAULTS_LIMIT
+          value: "25"
+        - name: AUTHENTICATION
+        - name: DEFAULT_VECTORIZER_MODULE
+          value: 'none'
+      imagePullSecrets:
+      {{- toYaml .Values.deployment.imagePullSecrets | nindent 8 }}
+

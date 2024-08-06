@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: type
+                operator: In
+                values:
+                - ollama
+      containers:
+      - name: ollama
+        image: pocgenaidade.azurecr.io/containergroup:ollama-container
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 11434
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: entrypoint-script
+          mountPath: /entrypoint.sh
+          subPath: entrypoint.sh
+        command: ["/usr/bin/bash"]
+        args: ["/entrypoint.sh"]
+        resources:
+          requests:
+            memory: "32Gi"
+            cpu: "8"
+          limits:
+            memory: "32Gi"
+            cpu: "8"
+      volumes:
+      - name: ollama-data
+        persistentVolumeClaim:
+          claimName: ollama-data-pvc
+      - name: entrypoint-script
+        configMap:
+          name: entrypoint-script-configmap
+      imagePullSecrets:
+      - name: my-registry-key
+

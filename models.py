@@ -1,5 +1,4 @@
 from fastapi import HTTPException
-from ollama import Client
 import json
 import logging
 import requests
@@ -7,13 +6,17 @@ from PIL import Image
 from io import BytesIO
 import base64
 import os
+from constants import ExecuteModelInput, CollectionInput, UploadDocuments
 from typing import Dict
-from langchain_community.document_loaders import PyPDFLoader
+from pypdf import PdfReader
+from langchain.text_splitter import CharacterTextSplitter
 from dotenv import load_dotenv
-from utils import upload_documents, save_collection, load_collection, generate_unique_id
-from constants import InputText
+from utils import generate_unique_id
 import ollama
-import chromadb
+import timeit
+import weaviate.classes as wvc
+from weaviate.classes.config import Property, DataType
+import weaviate
 load_dotenv()
 
 # Load env variables
@@ -25,6 +28,8 @@ storage: Dict[str, Dict] = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Instantiate at init
+client = weaviate.connect_to_local('weaviate')
 
 # Class to upload generic inputs for the models
 class GenericInputs:
@@ -41,14 +46,14 @@ class MultiModalModel(GenericInputs):
     """
     Represents a multi-modal model processing instance inheriting from GenericInputs.
     """
-    def __init__(self, input_text: InputText, gen_system_prompt: str, gen_image_prompt: str, gen_text_prompt: str):
+    def __init__(self, input_text: ExecuteModelInput, gen_system_prompt: str, gen_image_prompt: str, gen_text_prompt: str):
         """
         Initialize the MultiModalModel with input text and generic prompts.
         """
         super().__init__(gen_system_prompt, gen_image_prompt, gen_text_prompt)
         self.input_text = input_text
     
-    def execute_model(self, file_path=None, document_file=None):
+    def execute_model(self):
         """
         Execute the multi-modal model processing with optional file inputs.
 
@@ -89,8 +94,6 @@ class MultiModalModel(GenericInputs):
         Aditional instructions:
         - Please, follow the instructions specified in this prompt. Don't do anything that was not requested in this prompt.
         """
-        client = Client(host=f'{ollama_host}/api/generate')
-
         try:
             # Prepare message
             messages = [ {'role': 'system', 'content': self.input_text.system_prompt},
@@ -110,29 +113,22 @@ class MultiModalModel(GenericInputs):
             raise HTTPException(status_code=400, detail="Error processing image URL")
         
         try:                
-            # Check if model is loaded into container
-            r = requests.get(f'{ollama_host}/api/tags')
-            if self.input_text.model not in str(r.content):
-                logger.info(f'Model is not loaded into container. Loading model...')
-                # Define the endpoint URL for the Ollama-container
-                ollama_url = f"{ollama_host}/api/pull"
-                # Prepare the payload with the model name
-                payload = {"model": self.input_text.model}
-                # Send the POST request to the Ollama-container
-                requests.post(ollama_url, json=payload)
-                logger.info(f'Model {self.input_text.model} loaded')
-
             # Call the external model
-            response = client.chat(model=self.input_text.model, messages=messages)
+            response = ollama.chat(model=self.input_text.model, messages=messages, stream=True)
             
             # Obtain the response from the model
-            data = response['message']['content']
-
-            # Return data with its request_id 
-            request_id = generate_unique_id()
-            storage[request_id] = {"username": self.input_text.username, "data": json.dumps(data)}
-            
-            return {"id": request_id, "data": data}
+            text_response = ""
+            collected_data = ""
+            for chunk in response:
+                content = chunk['message']['content']
+                if content != None:
+                    text_response += content
+                    collected_data = content
+                else:
+                    request_id = generate_unique_id()
+                    collected_data = {"id": request_id, "data": text_response}
+                
+                yield collected_data
         
         except Exception as e:
             logger.error(f"Error processing request: {e}")
@@ -143,118 +139,178 @@ class RagModel(GenericInputs):
     """
     Represents a RAG (Retrieval-Augmented Generation) model processing instance inheriting from GenericInputs.
     """
-    def __init__(self, input_text: InputText):
+    def __init__(self):
         """
         Initialize the RagModel with input text and necessary components.
-
-        Parameters:
-        -----------
-        input_text : InputText
-            The input text containing model parameters and prompts.
         """
-        self.input_text = input_text
-
-    def execute_model(self, file_paths, document_files):
+    
+    def list_collections(self):
         """
-        Execute the RAG model processing with optional file inputs.
-
-        This method manages document loading, indexing, querying, and response retrieval using
-        the RAG model and associated components.
-
-        Parameters:
-        -----------
-        file_paths : list of str or None
-            List of file paths to be processed (default is None).
-        document_files : list of UploadFile or None
-            List of document files to be processed (default is None).
+        This method list all collections from to Weaviate Vectorial DB.
 
         Returns:
         --------
-        dict
-            A dictionary containing the processed data or confirmation of operation.
+        str
+            A string with a list of the collections.
 
         Raises:
         -------
         HTTPException
             If there's an error processing the request (status_code 500).
         """
-        client = chromadb.PersistentClient(path="chromadb/")
-        # Check if model is loaded into container
-        r = requests.get(f'{ollama_host}/api/tags')
-        for model in [self.input_text.embed_model, self.input_text.model]:
-            if model not in str(r.content):
-                logger.info(f'Model is not loaded into container. Loading model...')
-                # Define the endpoint URL for the Ollama-container
-                ollama_url = f"{ollama_host}/api/pull"
-                # Prepare the payload with the model name
-                payload = {"model": model}
-                # Send the POST request to the Ollama-container
-                requests.post(ollama_url, json=payload)
-                logger.info(f'Model {model} loaded')
+        
         try:
-            if file_paths:
-                logger.info(f'Loading Files...')
-                counter = 0
-                for file_path in file_paths:
-                    # Create chromadb collection
-                    collection = client.create_collection(name=document_files[counter].filename)
-                    # Load documents locally and split
-                    loader = PyPDFLoader(file_path)
-                    documents = loader.load_and_split()
-                    # Save them permanently in Azure Container
-                    upload_documents(self.input_text.username, file_path, document_files[counter].filename)
-                    logger.info(f"Loaded {len(documents)} pages")
-                    # store each document in a vector embedding database
-                    for i, d in enumerate(documents):
-                        # Convert document to a JSON-serializable format
-                        document_text = d.page_content if hasattr(d, 'page_content') else str(d)
-                        response = ollama.embeddings(model=self.input_text.embed_model, prompt=document_text)
-                        embedding = response["embedding"]
-                        collection.add(
-                            ids=[str(i)],
-                            embeddings=[embedding],
-                            documents=[document_text]
-                        )
-                    # # Save vector store index in Azure
-                    save_collection(self.input_text.username, "chromadb", self.input_text.collection_name, collection.get(include=['embeddings', 'documents', 'metadatas']))
-                    counter =+ 1
-                return {'Documents loaded succesfully'}
-            else:
-                try:
-                    # Load collection
-                    logger.info('Loading collection...')
-                    collection = client.get_collection(self.input_text.collection_name,)
-                except Exception as e:
-                    # Download collection from Azure
-                    logger.info(f'{str(e)}. Downloading collection...')
-                    json_col = load_collection(self.input_text.username, "chromadb", self.input_text.collection_name,)
-                    collection = client.create_collection(self.input_text.collection_name,)
-                    collection.add(
-                        embeddings = json_col['embeddings'],
-                        documents = json_col['documents'],
-                        metadatas = json_col['metadatas'],
-                        ids = json_col['ids'])
-                # Generate an embedding for the prompt and retrieve the most relevant doc
-                response = ollama.embeddings(
-                prompt=self.input_text.user_prompt,
-                model=self.input_text.embed_model
-                )
-                results = collection.query(
-                query_embeddings=[response["embedding"]],
-                n_results=1
-                )
-                data = results['documents'][0][0]
-                # Provide response
-                output = ollama.generate(
-                model=self.input_text.model,
-                prompt=f"Using this data: {data}. Respond to this prompt: {self.input_text.user_prompt}"
-                )
-
-                # Return data with its request_id 
-                request_id = generate_unique_id()
-                storage[request_id] = {'data': output['response']}
-                return{"id": request_id, 'data': output['response']}
+            # List all collections
+            logger.info('Listing collections...')
+            response = client.collections.list_all(simple=True)
+            names = [config.name for config in response.values()]
+            return f'Collection list: {names}'
+        
         except Exception as e:
-            logger.info(f"Error processing request: {e}")
+            logger.error(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-            
+        
+    def delete_collection(self, input_text: CollectionInput):
+        """
+        This method deletes a collection from to Weaviate Vectorial DB.
+
+        Parameters:
+        --------
+        input_text : CollectionInput
+            The input text containing input parameters.
+
+        Returns:
+        --------
+        str
+            A string confirming the operation.
+
+        Raises:
+        -------
+        HTTPException
+            If there's an error processing the request (status_code 500).
+        """
+        
+        try:
+            # Delete Collection
+            logger.info('Deleting collection...')
+            client.collections.delete(input_text.collection_name)
+            return 'Collection deleted'
+       
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    def load_documents(self, file_paths, input_text:UploadDocuments):
+        """
+        This method generates embeddings and manages uploading of embedded documents to Weaviate Vectorial DB.
+
+        Parameters:
+        -------
+        file_paths
+            a list of paths to load the documents.
+        input_text : UploadDocuments
+            The input text containing input parameters.
+
+        Returns:
+        --------
+        str
+            A string confirming the operation.
+
+        Raises:
+        -------
+        HTTPException
+            If there's an error processing the request (status_code 500).
+        """
+        
+        try:
+            logger.info(f'Loading Files...')
+            # Get or create weaviate collection
+            collection = client.collections.get(input_text.collection_name)
+        except Exception as e:
+            if '404' in str(e):
+                logger.info(f'Creating collection...')
+                collection = client.collections.create(
+                name =input_text.collection_name, # Name of the data collection
+                properties=[
+                    Property(name="text", data_type=DataType.TEXT), # Name and data type of the property
+                    ],
+                )
+            else:
+                logger.error(f"Error processing request: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        try:
+            for file_path in file_paths:
+                # Load documents and split
+                loader = PdfReader(file_path)
+                documents = [p.extract_text().strip() for p in loader.pages]
+                # Filter the empty strings
+                documents = [text for text in documents if text]
+                with collection.batch.dynamic() as batch:
+                    for i, d in enumerate(documents):
+                        # Generate embeddings
+                        response = ollama.embeddings(model = "all-minilm",
+                                                    prompt = d)
+                        # Add data object with text and embedding
+                        batch.add_object(
+                            properties = {"text" : d},
+                            vector = response["embedding"],
+                        )
+                return 'Documents uploaded'
+        
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    def execute_model(self, input_text: ExecuteModelInput):
+        """
+        Execute the RAG model processing with optional file inputs.
+
+        This method manages indexing, querying, and response retrieval using
+        the RAG model and associated components.
+
+        Parameters:
+        --------
+        input_text : ExecuteModelInput
+            The input text containing input parameters.
+
+        Returns:
+        --------
+        str
+            A string containing the processed data.
+
+        Raises:
+        -------
+        HTTPException
+            If there's an error processing the request (status_code 500).
+        """
+        try:
+            logger.info('Querying collection...')
+            collection = client.collections.get(input_text.collection_name)
+            # Generate an embedding for the prompt and retrieve the most relevant doc
+            embed_start = timeit.timeit()
+            response = ollama.embeddings(
+            model = "all-minilm",
+            prompt = input_text.user_prompt,
+            )
+            embed_end = timeit.timeit()
+            query_start = timeit.timeit()
+            results = collection.query.near_vector(near_vector = response["embedding"],
+                                                limit = input_text.k_value)
+            data = results.objects[0].properties['text']
+            query_end = timeit.timeit()
+            # Provide response
+            resp_start = timeit.timeit()
+            output = ollama.generate(
+            model=input_text.model,
+            prompt=f"Using this data: {data}. Respond to this prompt: {input_text.user_prompt}"
+            )
+            resp_end = timeit.timeit()
+            logger.info('Response timings are:')
+            logger.info(f'embed_timing: {(embed_end - embed_start)} seconds')
+            logger.info(f'query_timing: {(query_end - query_start)} seconds')
+            logger.info(f'response_model_timing: {(resp_end - resp_start)} seconds')
+            return output['response']
+        
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            raise HTTPException(status_code=500, detail=str(e))

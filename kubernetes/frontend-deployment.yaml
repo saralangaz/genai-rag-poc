@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: type
+                operator: In
+                values:
+                - frontend-backend
+      containers:
+      - name: frontend
+        image: pocgenaidade.azurecr.io/containergroup:frontend-container
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 7860
+        env:
+        - name: BACKEND_HOST
+          value: "http://backend:8000"
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "1"
+      imagePullSecrets:
+      - name: my-registry-key
