@@ -2,7 +2,7 @@
 
 Hello and welcome!
 
-This repository contains a FastAPI backend and a Gradio frontend for processing and retrieving data from the Ollama model. The application can handle both text and image inputs, using different models from Ollama.
+This repository contains a FastAPI backend and a Gradio frontend for processing and retrieving data from the Ollama model. The application can handle both text and image inputs, using different models from Ollama. The embeddings are stored in Weaviate vectorial DB.
 
 ## Table of Contents
 
@@ -43,6 +43,8 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
 2. The application will be available at the following URLs:
     - Gradio Frontend: `http://localhost:7860`
     - FastAPI Backend: `http://localhost:8000`
+    - Ollama container: `http://localhost:11434`
+    - Weaviate container: `http://localhost:8080`
 
 ## Endpoints
 
@@ -59,7 +61,7 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
         - `id` (string): The request ID.
         - `data` (string): The processed data.
 
-- **GET /api/retrieve**: Retrieves the processed data using the request ID.
+- **GET /api/retrieve**: Retrieves the processed data using the request ID. (DEPRECATED)
     - **Request Parameters**:
         - `request_id` (string): The ID of the request to retrieve.
     - **Response**:
@@ -67,27 +69,7 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
 
 ## Deployment on Azure
 
-1. Push Docker Images to Azure Container Registry (ACR):
-   - Tag and push your Docker images to your Azure Container Registry:
-     ```sh
-     docker tag yourimage:tag acrname.azurecr.io/yourimage:tag
-     docker push acrname.azurecr.io/yourimage:tag
-     ```
-
-2. Create an Azure Web App for Containers:
-   - Create an Azure Web App for Containers and configure it to use your images from ACR.
-   - Set up the following environment variables in your Azure Web App:
-     - `WEBSITES_PORT` to `80` for the Gradio container.
-
-3. User Account Creation:
-   - In order to log in and use the application, users must create an account. Here's how to set up user accounts:
-     - The application uses authentication based on usernames and passwords stored in Cosmos DB.
-     - Use the following steps to add a new user:
-       - Access your Cosmos DB instance where user credentials are stored.
-       - Add a new document with `userid` and `password` fields to create a new user account.
-       - Ensure the user credentials are securely stored and managed.
-
-4. Ensure your Azure Web App can access the frontend service.
+This application has been deployed inside a Kubernetes cluster. All the required yaml files are stored inside the kubernetes folder.
 
 # Usage
 
@@ -110,9 +92,6 @@ This repository contains a FastAPI backend and a Gradio frontend for processing 
      - Enter the user query or upload documents using the provided file upload button.
      - Click `Submit` to process the request.
 
-   - **ID Request Retrieval**:
-     - Enter a valid request ID that was generated from a previous request.
-     - Click `Retrieve` to fetch the processed data associated with the request ID.
 
 3. Review the Output:
    - The interface will display the processed data in JSON format.
@@ -154,3 +133,4 @@ Each model class provides specific functionalities tailored to different use cas
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Gradio](https://gradio.app/)
 - [Ollama](https://ollama.com/)
+- [Weaviate](https://weaviate.com/)

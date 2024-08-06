@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import ClassVar, List
 
 # Generic system prompt
 gen_system_prompt = "You are a helpful AI assistant"
@@ -11,17 +12,23 @@ gen_user_query = ""
 # Generic context
 gen_context = ""
 
-# Multi-modal models
-mm_models = ["llama2:7b", "llama3.1:8b", "llava:7b"]
-# Rag models
-rag_models = ["llama2:7b", "llama3.1:8b", "mistral:7b"]
-
 # Create Pydantic classes
-class InputText(BaseModel):
-    model: str | None
+class ExecuteModelInput(BaseModel):
+    model: str
     use_case: str
     collection_name: str | None
+    k_value: int | None
     system_prompt: str | None
     user_prompt: str | None
     image_url: str | None
     username: str
+
+class CollectionInput(BaseModel):
+    collection_name: str
+
+class UploadDocuments(BaseModel):
+    model: str
+    collection_name: str
+
+class ValidModels(BaseModel):
+    models: ClassVar[List[str]] = ["llama2:7b", "llama3.1:8b", "llava:7b", "mistral:7b"]

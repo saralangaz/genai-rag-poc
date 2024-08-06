@@ -1,0 +1,80 @@
+# Service Configuration
+service:
+  enabled: true
+  name: weaviate
+  namespace: default
+  type: LoadBalancer
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+    - name: grpc
+      protocol: TCP
+      port: 50051
+      targetPort: 50051
+  selector:
+    app: weaviate
+
+# Persistent Volume Claim Configuration
+pvc:
+  enabled: true
+  name: weaviate-pvc
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+# Deployment Configuration
+deployment:
+  replicas: 1
+  name: weaviate
+  labels:
+    app: weaviate
+  image:
+    repository: pocgenaidade.azurecr.io/containergroup
+    tag: weaviate-container
+  imagePullPolicy: Always
+  command:
+    - "weaviate"
+    - "--host"
+    - "0.0.0.0"
+    - "--port"
+    - "8080"
+    - "--scheme"
+    - "http"
+  ports:
+    - containerPort: 8080
+    - containerPort: 50051
+  volumes:
+    - name: weaviate-data
+      persistentVolumeClaim:
+        claimName: weaviate-pvc
+  volumeMounts:
+    - name: weaviate-data
+      mountPath: /var/lib/weaviate
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "1"
+    limits:
+      memory: "16Gi"
+      cpu: "4"
+  env:
+    - name: QUERY_DEFAULTS_LIMIT
+      value: "25"
+    - name: AUTHENTICATION
+    - name: DEFAULT_VECTORIZER_MODULE
+      value: none
+  imagePullSecrets:
+    - name: my-registry-key
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: type
+                operator: In
+                values:
+                  - frontend-backend
