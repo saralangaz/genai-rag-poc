@@ -6,7 +6,7 @@ from PIL import Image
 from io import BytesIO
 import base64
 import os
-from constants import ExecuteModelInput, CollectionInput, UploadDocuments
+from constants import ExecuteModelInput, CollectionInput
 from typing import Dict
 from pypdf import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
@@ -200,7 +200,7 @@ class RagModel(GenericInputs):
             logger.error(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    def load_documents(self, file_paths, input_text:UploadDocuments):
+    def load_documents(self, file_paths, input_text:CollectionInput):
         """
         This method generates embeddings and manages uploading of embedded documents to Weaviate Vectorial DB.
 
@@ -208,7 +208,7 @@ class RagModel(GenericInputs):
         -------
         file_paths
             a list of paths to load the documents.
-        input_text : UploadDocuments
+        input_text : CollectionInput
             The input text containing input parameters.
 
         Returns:

@@ -26,8 +26,11 @@ services:
       - app-network
 
   ollama:
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama
     platform: linux/amd64
-    image: ollama/ollama:0.2.1 # Replace with your Docker image name/tag for ollama
+    image: ollama # Replace with your Docker image name/tag for ollama
     volumes:
       - ollama_data:/root/.ollama
       - ./entrypoint.sh:/entrypoint.sh

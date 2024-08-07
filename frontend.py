@@ -153,7 +153,7 @@ def list_collection_request():
     except Exception as e:
         return {'error': f'{str(e)}'}
 
-def upload_documents(input:dict, request:gr.Request, files:list):
+def upload_documents(input:str, request:gr.Request, files:list):
     """
     Send a POST request to a FastAPI backend for uploading documents to a Vectorial DB.
 
@@ -172,14 +172,12 @@ def upload_documents(input:dict, request:gr.Request, files:list):
         JSON response from the FastAPI backend.
     """
     url = url = f"{backend_host}/api/load_documents" 
-    input = json.loads(input)
     processed_files = []
     for file in files:
         if file:
             processed_files.append(('document_files', open(file.name, 'rb')))
     payload = {
-        "model": input.get("model"),
-        "collection_name": input.get("collection_name"),
+        "collection_name": input,
         "username": request.username
         }
     response = requests.post(url, data=payload, files=processed_files)
@@ -209,13 +207,15 @@ with gr.Blocks(css=css) as demo:
         gr.Markdown("""**Multi-Modal Use Case:** 
                     This tab is used to ask the chatbot to generate responses based on your queries, provide information about an image, etc.
                     
-                    Mandatory inputs: model type (llama2:7b, llama3.1:8b, llava:7b). 
+                    Mandatory inputs: model type (llama3.1:8b, llava:7b). 
                     
                     Optional inputs: system prompt, user prompt, image URL. "
 
+                    USE LLAVA MODEL FOR IMAGE PROCESSING!
+
                     **Structure**:""")
         gr.Markdown("""```
-                    {"model": "llama2:7b",
+                    {"model": "llama3.1:8b",
                      "system_prompt": "You are an intelligent assistant that helps generate structured data.",
                      "user_prompt":"Generate a set of JSON data for a hypothetical e-commerce website. The data should include fields for product name, price, and availability",
                      "image_url": ""}
@@ -229,7 +229,7 @@ with gr.Blocks(css=css) as demo:
         gr.Markdown("""**Rag Use Case:** 
                     This tab is used to Upload documents to Weaviate Vectorial Database and ask questions or extract information from those documents.
                     
-                    Mandatory inputs: model type (llama2:7b, llama3.1:8b, mistral:7b), collection name and user prompt. 
+                    Mandatory inputs: model type (llama3.1:8b, mistral:7b), collection name and user prompt. 
                     
                     Optional input: k: number of documents to retrieve, by default 5;
                     
@@ -240,9 +240,9 @@ with gr.Blocks(css=css) as demo:
                 gr.Markdown("### Structure")
                 gr.Markdown("""```
                 {"model": "llama3.1:8b",
-                "collection_name": "news_2024",
+                "collection_name": "kubernetes",
                 "k": 5,
-                "user_prompt": "can you summarize the news of June?"}
+                "user_prompt": "can you summarize the use of kubernetes in 100 words"}
                 ```""")
                 rag_input = gr.Textbox(label="Inputs", lines=4)
         rag_button = gr.Button("Submit")
@@ -252,17 +252,14 @@ with gr.Blocks(css=css) as demo:
         with gr.Row():
             with gr.Column(scale=1,):
                 gr.Markdown("### Upload Documents to Weaviate DB")
-                gr.Markdown("""```
-                {"model": "llama3.1:8b",
-                "collection_name": "news_2024"}
-                ```""")
-                rag_textfile_input = gr.Textbox(label="Inputs", lines=4)
+                gr.Markdown("Add a collection name and select one or more documents to upload and save them in the DB")
+                rag_textfile_input = gr.Textbox(label="Collection Name", placeholder="kubernetes")
                 rag_file_input = gr.Files(label="Upload Documents", type="filepath")
                 upl_button = gr.Button("Upload")
             
             with gr.Column(scale=1):
                 gr.Markdown("### Delete a Collection from Weaviate DB")
-                delete_file_name = gr.Textbox(label="Collection Name to Delete", placeholder="news_2024")
+                delete_file_name = gr.Textbox(label="Collection Name", placeholder="kubernetes")
                 delete_button = gr.Button("Delete")
                 gr.Markdown("### List all collections from Weaviate DB")
                 list_button = gr.Button("List")

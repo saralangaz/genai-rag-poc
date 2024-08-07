@@ -26,9 +26,5 @@ class ExecuteModelInput(BaseModel):
 class CollectionInput(BaseModel):
     collection_name: str
 
-class UploadDocuments(BaseModel):
-    model: str
-    collection_name: str
-
 class ValidModels(BaseModel):
-    models: ClassVar[List[str]] = ["llama2:7b", "llama3.1:8b", "llava:7b", "mistral:7b"]
+    models: ClassVar[List[str]] = ["llama3.1:8b", "llava:7b", "mistral:7b"]
