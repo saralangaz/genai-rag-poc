@@ -4,7 +4,7 @@ import logging
 from typing import Dict, List
 import tempfile
 from dotenv import load_dotenv
-from constants import gen_system_prompt, gen_text_prompt, gen_image_prompt, ExecuteModelInput, UploadDocuments, CollectionInput, ValidModels
+from constants import gen_system_prompt, gen_text_prompt, gen_image_prompt, ExecuteModelInput, CollectionInput, ValidModels
 # from utils import get_all_usernames, authenticate_user
 from models import MultiModalModel, RagModel
 from fastapi.responses import StreamingResponse
@@ -145,7 +145,6 @@ async def delete_collection(input_text: CollectionInput):
 # Endpoint to load documents to Weaviate DB
 @app.post("/api/load_documents")
 async def load_documents(
-    model: str = Form(...),
     collection_name: str = Form(...),
     document_files: List[UploadFile] = File(...)):
     """
@@ -179,8 +178,7 @@ async def load_documents(
 
     try:
         # Assign the received data to input_text
-        input_text = UploadDocuments(
-            model=model,
+        input_text = CollectionInput(
             collection_name=collection_name
         )
         # Log the incoming request
