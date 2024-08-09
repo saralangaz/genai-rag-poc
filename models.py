@@ -117,18 +117,9 @@ class MultiModalModel(GenericInputs):
             response = ollama.chat(model=self.input_text.model, messages=messages, stream=True)
             
             # Obtain the response from the model
-            text_response = ""
-            collected_data = ""
             for chunk in response:
                 content = chunk['message']['content']
-                if content != None:
-                    text_response += content
-                    collected_data = content
-                else:
-                    request_id = generate_unique_id()
-                    collected_data = {"id": request_id, "data": text_response}
-                
-                yield collected_data
+                yield content
         
         except Exception as e:
             logger.error(f"Error processing request: {e}")
@@ -302,14 +293,18 @@ class RagModel(GenericInputs):
             resp_start = timeit.timeit()
             output = ollama.generate(
             model=input_text.model,
-            prompt=f"Using this data: {data}. Respond to this prompt: {input_text.user_prompt}"
+            prompt=f"Using this data: {data}. Respond to this prompt: {input_text.user_prompt}",
+            stream=True
             )
             resp_end = timeit.timeit()
             logger.info('Response timings are:')
             logger.info(f'embed_timing: {(embed_end - embed_start)} seconds')
             logger.info(f'query_timing: {(query_end - query_start)} seconds')
             logger.info(f'response_model_timing: {(resp_end - resp_start)} seconds')
-            return output['response']
+            # Obtain the response from the model
+            for chunk in output:
+                content = chunk['response']
+                yield content
         
         except Exception as e:
             logger.error(f"Error processing request: {e}")

@@ -93,11 +93,13 @@ def process_rag_request(input: dict, request: gr.Request):
 
         logger.info(f'Info loaded: Payload is {payload}')
         # Send POST request to FastAPI backend
-        response = requests.post(url, json=payload)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return {"error": response.text}
+        response = requests.post(url, json=payload, stream=True)
+        collected_data = ""
+        for line in response.iter_lines():
+            decoded_line = line.decode('utf-8')
+            if decoded_line != None:
+                collected_data += decoded_line
+                yield collected_data
     
     except Exception as e:
         return {'error': f'{str(e)}'}

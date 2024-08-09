@@ -75,7 +75,7 @@ async def execute_model(input_text:ExecuteModelInput):
             return StreamingResponse(astreamer(process_request.execute_model()), media_type="text/event-stream")
         else:
             process_request = RagModel()
-            return process_request.execute_model(input_text)
+            return StreamingResponse(astreamer(process_request.execute_model(input_text)), media_type="text/event-stream")
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
