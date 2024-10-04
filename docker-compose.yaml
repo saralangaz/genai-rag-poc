@@ -1,12 +1,14 @@
 services:
   backend:
-    build:
+    build: 
       context: .
       dockerfile: Dockerfile.fastapi
     platform: linux/amd64
     image: poc-genai  # Replace with your Docker image name/tag for poc-app
     ports:
       - "8000:8000"
+    volumes:
+      - backend_images:/usr/src/app/images  # Mount the local 'images' folder
     environment:
       - PYTHONUNBUFFERED=1  # Ensures Python output is sent straight to terminal
     depends_on:
@@ -64,6 +66,13 @@ services:
       CLUSTER_HOSTNAME: 'node1'
     networks:
       - app-network
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"  # UI and OTLP HTTP collector
+      - "4317:4317"  # OTLP gRPC collector
+    networks:
+      - app-network
 
 networks:
   app-network:
@@ -71,6 +80,7 @@ networks:
 
 volumes:
   ollama_data:
+  backend_images:
   weaviate_data:
   index_data:
     driver: local

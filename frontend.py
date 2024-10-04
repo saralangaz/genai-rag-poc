@@ -7,184 +7,131 @@ from utils import get_all_usernames
 import json
 load_dotenv()
 
-# Load environment variables
-backend_host = os.getenv('BACKEND_HOST', "http://backend:8000")
-
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define a function to process the request
-def process_mm_request(input, request: gr.Request):
-    """
-    Send a POST request to a FastAPI backend for processing multi-modal requests.
+class BackendAPI:
+    def __init__(self):
+        self.backend_host = os.getenv('BACKEND_HOST', "http://backend:8000")
 
-    Parameters:
-    -----------
-    input : dict
-        The values to send to the backend.
-    request: gr.Request
-        The username.
+    def process_mm_request(self, input, request: gr.Request):
+        """
+        Send a POST request to a FastAPI backend for processing multi-modal requests.
+        """
+        try:
+            url = f"{self.backend_host}/api/execute_model"
+            input = json.loads(input)
 
-    Returns:
-    --------
-    dict
-        JSON response from the FastAPI backend.
-    """
+            payload = {
+                "model": input.get("model"),
+                "use_case": "multimodal",
+                "collection_name": None,
+                "k_value": None,
+                "system_prompt": input.get("system_prompt"),
+                "user_prompt": input.get("user_prompt"),
+                "image_url": input.get("image_url"),
+                "username": request.username
+            }
+            logger.info(f'Info loaded: Payload is {payload}')
+            response = requests.post(url, json=payload, stream=True)
+            collected_data = ""
+            for line in response.iter_lines():
+                decoded_line = line.decode('utf-8')
+                if decoded_line:
+                    collected_data += decoded_line
+                    yield collected_data
+        except Exception as e:
+            return {'error': f'{str(e)}'}
 
-    try:
-        url = f"{backend_host}/api/execute_model"  
-        input = json.loads(input)
-        
+    def process_rag_request(self, input: dict, request: gr.Request):
+        """
+        Send a POST request to a FastAPI backend for processing RAG (Retrieval-Augmented Generation) requests.
+        """
+        try:
+            url = f"{self.backend_host}/api/execute_model"
+            input = json.loads(input)
+
+            payload = {
+                "model": input.get("model"),
+                "use_case": "rag",
+                "collection_name": input.get("collection_name"),
+                "k_value": input.get("k"),
+                "system_prompt": None,
+                "user_prompt": input.get("user_prompt"),
+                "image_url": None,
+                "username": request.username
+            }
+            logger.info(f'Info loaded: Payload is {payload}')
+            response = requests.post(url, json=payload, stream=True)
+            collected_data = ""
+            for line in response.iter_lines():
+                decoded_line = line.decode('utf-8')
+                if decoded_line:
+                    collected_data += decoded_line
+                    yield collected_data
+
+        except Exception as e:
+            return {'error': f'{str(e)}'}
+
+    def delete_collection_request(self, collection_name: str):
+        """
+        Send a POST request to a FastAPI backend for deleting a Collection from a Vectorial DB.
+        """
+        try:
+            url = f"{self.backend_host}/api/delete_collection"
+            payload = {"collection_name": collection_name}
+            logger.info(f'Info loaded: Payload is {payload}')
+            response = requests.post(url, json=payload)
+            return response.text
+        except Exception as e:
+            return {'error': f'{str(e)}'}
+
+    def list_collection_request(self):
+        """
+        Send a GET request to a FastAPI backend for listing all collections from Vectorial DB.
+        """
+        try:
+            url = f"{self.backend_host}/api/list_collections"
+            response = requests.get(url)
+            return response.text
+        except Exception as e:
+            return {'error': f'{str(e)}'}
+
+    def upload_documents(self, collection_name: str, request: gr.Request, files: list):
+        """
+        Send a POST request to a FastAPI backend for uploading documents to a Vectorial DB.
+        """
+        url = f"{self.backend_host}/api/load_documents"
+        processed_files = []
+        for file in files:
+            if file:
+                processed_files.append(('document_files', open(file.name, 'rb')))
         payload = {
-            "model": input.get("model"),
-            "use_case": "multimodal",
-            "collection_name": None,
-            "k_value": None,
-            "system_prompt": input.get("system_prompt"),
-            "user_prompt": input.get("user_prompt"),
-            "image_url": input.get("image_url"),
+            "collection_name": collection_name,
             "username": request.username
         }
-        logger.info(f'Info loaded: Payload is {payload}')
-        
-        # Send POST request to FastAPI backend
-        response = requests.post(url, json=payload, stream=True)
-        collected_data = ""
-        for line in response.iter_lines():
-            decoded_line = line.decode('utf-8')
-            if decoded_line != None:
-                collected_data += decoded_line
-                yield collected_data
-    except Exception as e:
-        return {'error': f'{str(e)}'}
-    
-def process_rag_request(input: dict, request: gr.Request):
-    """
-    Send a POST request to a FastAPI backend for processing RAG (Retrieval-Augmented Generation) requests.
+        response = requests.post(url, data=payload, files=processed_files)
+        return response.text
 
-    Parameters:
-    -----------
-    input : dict
-        The values to send to the backend.
-    request: gr.Request
-        The username.
-
-    Returns:
-    --------
-    dict
-        JSON response from the FastAPI backend.
-    """
-        
-    try:
-        url = f"{backend_host}/api/execute_model" 
-        input = json.loads(input)
+    def upload_images(self, collection_name: str, image_description:str, request: gr.Request, file: str):
+        """
+        Send a POST request to a FastAPI backend for uploading images to a Vectorial DB.
+        """
+        url = f"{self.backend_host}/api/load_images"  
+        processed_file = [('image_files', open(file, 'rb'))]
 
         payload = {
-            "model": input.get("model"),
-            "use_case": "rag",
-            "collection_name": input.get("collection_name"),
-            "k_value": input.get("k"),
-            "system_prompt": None,
-            "user_prompt": input.get("user_prompt"),
-            "image_url": None,
+            "collection_name": collection_name,
+            "image_description": image_description,
             "username": request.username
         }
 
-        logger.info(f'Info loaded: Payload is {payload}')
-        # Send POST request to FastAPI backend
-        response = requests.post(url, json=payload, stream=True)
-        collected_data = ""
-        for line in response.iter_lines():
-            decoded_line = line.decode('utf-8')
-            if decoded_line != None:
-                collected_data += decoded_line
-                yield collected_data
-    
-    except Exception as e:
-        return {'error': f'{str(e)}'}
-
-def delete_collection_request(input: str):
-    """
-    Send a POST request to a FastAPI backend for deleting a Collection from a Vectorial DB.
-
-    Parameters:
-    -----------
-    input : str
-        The collection Name to be deleted.
-
-    Returns:
-    --------
-    dict
-        JSON response from the FastAPI backend.
-    """
-        
-    try:
-        url = f"{backend_host}/api/delete_collection" 
-
-        payload = {
-            "collection_name": input
-        }
-        logger.info(f'Info loaded: Payload is {payload}')
-        
-        # Send POST request to FastAPI backend
-        response = requests.post(url, json=payload)
+        response = requests.post(url, data=payload, files=processed_file)
+        # Close the opened files to avoid resource leaks
+        for _, file in processed_file:
+            file.close()
         return response.text
-    
-    except Exception as e:
-        return {'error': f'{str(e)}'}
-
-def list_collection_request():
-    """
-    Send a GET request to a FastAPI backend for listing all collections from Vectorial DB.
-
-    Returns:
-    --------
-    dict
-        JSON response from the FastAPI backend.
-    """
-        
-    try:
-        url = f"{backend_host}/api/list_collections" 
-        
-        # Send GET request to FastAPI backend
-        response = requests.get(url)
-        
-        return response.text
-    
-    except Exception as e:
-        return {'error': f'{str(e)}'}
-
-def upload_documents(input:str, request:gr.Request, files:list):
-    """
-    Send a POST request to a FastAPI backend for uploading documents to a Vectorial DB.
-
-    Parameters:
-    -----------
-    input : str
-        The collection Name to be deleted.
-    request: gr.Request
-        The username.
-    files : List[UploadFile]
-        List of files to be uploaded for the request.
-
-    Returns:
-    --------
-    dict
-        JSON response from the FastAPI backend.
-    """
-    url = url = f"{backend_host}/api/load_documents" 
-    processed_files = []
-    for file in files:
-        if file:
-            processed_files.append(('document_files', open(file.name, 'rb')))
-    payload = {
-        "collection_name": input,
-        "username": request.username
-        }
-    response = requests.post(url, data=payload, files=processed_files)
-    
-    return response.text
 
 css = """
 .upload-section {
@@ -192,6 +139,9 @@ css = """
     max-width: 600px; /* Adjust the max-width as needed */
 }
 """
+
+# Create an instance of the BackendAPI class
+backend_api = BackendAPI()
 
 # Create Gradio interface
 with gr.Blocks(css=css) as demo:
@@ -259,6 +209,13 @@ with gr.Blocks(css=css) as demo:
                 rag_file_input = gr.Files(label="Upload Documents", type="filepath")
                 upl_button = gr.Button("Upload")
             
+            with gr.Column(scale=1,):
+                gr.Markdown("### Upload Images to Weaviate DB")
+                rag_textimage_input = gr.Textbox(label="Collection Name", placeholder="kubernetes")
+                rag_textimagedesc_input = gr.Textbox(label="Image description", placeholder="kubernetes logo")
+                image_input = gr.Image(type="filepath", label="Upload Image(s)")
+                upl_img_button = gr.Button("Upload")
+            
             with gr.Column(scale=1):
                 gr.Markdown("### Delete a Collection from Weaviate DB")
                 delete_file_name = gr.Textbox(label="Collection Name", placeholder="kubernetes")
@@ -267,11 +224,12 @@ with gr.Blocks(css=css) as demo:
                 list_button = gr.Button("List")
         ragfile_out = gr.Textbox(label="Database Response")
 
-    mm_button.click(process_mm_request, inputs=mm_input, outputs=mm_out)
-    rag_button.click(process_rag_request, inputs=[rag_input], outputs=rag_out)
-    upl_button.click(upload_documents, inputs=[rag_textfile_input, rag_file_input], outputs=ragfile_out)
-    delete_button.click(delete_collection_request, inputs=[delete_file_name], outputs=ragfile_out)
-    list_button.click(list_collection_request, outputs=ragfile_out)
+    mm_button.click(backend_api.process_mm_request, inputs=mm_input, outputs=mm_out)
+    rag_button.click(backend_api.process_rag_request, inputs=[rag_input], outputs=rag_out)
+    upl_button.click(backend_api.upload_documents, inputs=[rag_textfile_input, rag_file_input], outputs=ragfile_out)
+    upl_img_button.click(backend_api.upload_images, inputs=[rag_textimage_input, rag_textimagedesc_input, image_input], outputs=ragfile_out)
+    delete_button.click(backend_api.delete_collection_request, inputs=[delete_file_name], outputs=ragfile_out)
+    list_button.click(backend_api.list_collection_request, outputs=ragfile_out)
 
 # Launch the combined interface
 demo.launch(server_name="0.0.0.0", auth=(get_all_usernames()))

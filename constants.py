@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import ClassVar, List
+import os
 
 # Generic system prompt
 gen_system_prompt = "You are a helpful AI assistant"
@@ -11,6 +12,12 @@ gen_image_prompt = "Describe this image"
 gen_user_query = ""
 # Generic context
 gen_context = ""
+
+# Directory where images will be stored
+IMAGE_DIR = "/usr/src/app/images"
+
+# Ensure the directory exists
+os.makedirs(IMAGE_DIR, exist_ok=True)
 
 # Create Pydantic classes
 class ExecuteModelInput(BaseModel):
@@ -25,6 +32,10 @@ class ExecuteModelInput(BaseModel):
 
 class CollectionInput(BaseModel):
     collection_name: str
+
+class ImageInput(BaseModel):
+    collection_name: str
+    image_description: str
 
 class ValidModels(BaseModel):
     models: ClassVar[List[str]] = ["llama3.1:8b", "llava:7b", "mistral:7b"]

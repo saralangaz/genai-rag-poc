@@ -1,14 +1,18 @@
 from fastapi import FastAPI, HTTPException, UploadFile, Form, File
+from fastapi.responses import FileResponse
 import json
 import logging
 from typing import Dict, List
 import tempfile
 from dotenv import load_dotenv
-from constants import gen_system_prompt, gen_text_prompt, gen_image_prompt, ExecuteModelInput, CollectionInput, ValidModels
+from constants import gen_system_prompt, gen_text_prompt, gen_image_prompt, ExecuteModelInput, CollectionInput, ValidModels, ImageInput, \
+    IMAGE_DIR
 # from utils import get_all_usernames, authenticate_user
 from models import MultiModalModel, RagModel
 from fastapi.responses import StreamingResponse
 import asyncio
+import os
+import shutil
 
 load_dotenv()
 
@@ -197,6 +201,54 @@ async def load_documents(
     except Exception as e:
         # Handle exceptions
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/load_images")
+async def load_images(
+    collection_name: str = Form(...),
+    image_description: str = Form(...),
+    image_files: List[UploadFile] = File(...)):
+
+    try:
+        # Assign the received data to input_text
+        input_text = ImageInput(
+            collection_name=collection_name,
+            image_description=image_description
+        )
+        # Log the incoming request
+        logger.info(f"Received input: {input_text}. Image files are {image_files}")
+        
+        file_paths = []
+        image_names = []
+        for image_file in image_files:
+           # Generate a path for the image
+            file_path = os.path.join(IMAGE_DIR, image_file.filename)
+
+            # Save the uploaded image
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(image_file.file, buffer)
+
+            # Generate the image URL
+            image_url = f"http://localhost:8000/images/{image_file.filename}"
+            file_paths.append(image_url)
+            image_names.append(image_file.filename)
+        
+        # Process the request with RagModel, similar to document loading
+        process_request = RagModel()
+        return process_request.load_images(file_paths, image_names, input_text)
+    
+    except Exception as e:
+        # Handle exceptions
+        logger.error(f"Error processing request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/images/{image_name}")
+async def get_image(image_name: str):
+    file_path = os.path.join(IMAGE_DIR, image_name)
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+    else:
+        return {"error": "Image not found"}
 
 # Endpoint to retrieve a previous model request
 @app.get("/api/retrieve/{request_id}")
