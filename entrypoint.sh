@@ -14,8 +14,8 @@ echo "🟢 Done!"
 echo "🔴 Retrieve LLaVa model..."
 ollama pull llava:7b
 echo "🟢 Done!"
-echo "🔴 Retrieve all minilm model..."
-ollama pull all-minilm
+echo "🔴 Retrieve nomic-embed-text model..."
+ollama pull nomic-embed-text
 echo "🟢 Done!"
 
 # Wait for Ollama process to finish.

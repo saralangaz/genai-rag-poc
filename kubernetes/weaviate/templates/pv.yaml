@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.pv.name }}  # This will be set based on the Helm values file
+spec:
+  capacity:
+    storage: {{ .Values.pv.size }}  # This will be dynamically set from values.yaml
+  accessModes:
+    - {{ .Values.pv.accessMode }}  # This too can be customized
+  persistentVolumeReclaimPolicy: {{ .Values.pv.reclaimPolicy }}  # Reclaim policy is set from values.yaml
+  storageClassName: {{ .Values.pv.storageClassName }}  # Set the storage class from values.yaml
+  hostPath:  # This will store data on the node’s filesystem, useful for testing/development
+    path: "/var/lib/weaviate" # Define the path on the node where the data will be stored
+    type: DirectoryOrCreate  # Create the directory if it doesn't exist

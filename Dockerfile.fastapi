@@ -4,7 +4,8 @@ WORKDIR /code
 
 RUN pip install --no-cache-dir --upgrade pip \
   && pip install --no-cache-dir fastapi uvicorn pydantic ollama requests python-multipart \
-  azure.storage.blob azure-cosmos chromadb langchain pypdf sentence_transformers weaviate-client
+  azure.storage.blob azure-cosmos chromadb langchain pypdf sentence_transformers weaviate-client --upgrade \
+  torch git+https://github.com/openai/CLIP.git 
 
 # 
 COPY ./backend.py /code/

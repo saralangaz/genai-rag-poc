@@ -1,0 +1,7 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageClass.name }}  # StorageClass name from values.yaml
+provisioner: {{ .Values.storageClass.provisioner }}  # Cloud provider provisioner
+volumeBindingMode: {{ .Values.storageClass.volumeBindingMode }}  # Set to Immediate
+reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}  # Reclaim policy (e.g., Retain)

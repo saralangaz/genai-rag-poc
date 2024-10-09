@@ -1,8 +1,8 @@
-# templates/pvc.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ .Values.pvc.name }}
+  namespace: {{ .Release.Namespace }}
 spec:
   accessModes:
     {{- range .Values.pvc.accessModes }}
@@ -11,3 +11,5 @@ spec:
   resources:
     requests:
       storage: {{ .Values.pvc.resources.requests.storage }}
+  storageClassName: {{ .Values.pvc.storageClassName }}  # Ensure this is correctly passed
+
