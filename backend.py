@@ -5,11 +5,9 @@ import logging
 from typing import Dict, List
 import tempfile
 from dotenv import load_dotenv
-from constants import gen_system_prompt, gen_text_prompt, gen_image_prompt, ExecuteModelInput, CollectionInput, ValidModels, ImageInput, \
-    IMAGE_DIR
+from constants import ExecuteModelInput, CollectionInput, ValidModels, ImageInput, IMAGE_DIR
 # from utils import get_all_usernames, authenticate_user
-from models import MultiModalModel, RagModel
-from fastapi.responses import StreamingResponse
+from models import RagModel
 import asyncio
 import os
 import shutil
@@ -72,14 +70,8 @@ async def execute_model(input_text:ExecuteModelInput):
             return {'error': f'The model specified must be one of: {ValidModels.models}'}
         # Log the incoming request
         logger.info(f"Received input: {input_text}.")
-
-        # Launch classes depending on the model input
-        if input_text.use_case == "multimodal":
-            process_request = MultiModalModel(input_text, gen_system_prompt, gen_image_prompt, gen_text_prompt)
-            return StreamingResponse(astreamer(process_request.execute_model()), media_type="text/event-stream")
-        else:
-            process_request = RagModel()
-            return StreamingResponse(astreamer(process_request.execute_model(input_text)), media_type="text/event-stream")
+        process_request = RagModel()
+        return process_request.execute_model(input_text)
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

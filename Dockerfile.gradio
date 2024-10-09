@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 # Copy
 COPY ./frontend.py /code/
+COPY ./images /code/images
 COPY ./constants.py /code/
 COPY ./utils.py /code/
 COPY ./.env /code/

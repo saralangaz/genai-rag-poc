@@ -7,6 +7,7 @@ import logging
 from azure.cosmos import CosmosClient, exceptions
 import uuid
 import json
+import re
 
 load_dotenv()
 
@@ -55,7 +56,7 @@ def ensure_correct_padding(encoded_key):
         encoded_key += '=' * (4 - padding)
     return encoded_key
 
-def create_container_if_not_exists(container_name: str):
+def create_container_if_not_exists(container_name: str = 'images'):
     """
     Create a blob storage container if it does not already exist.
 
@@ -85,6 +86,44 @@ def create_container_if_not_exists(container_name: str):
     except ResourceNotFoundError:
         # If container does not exist, create it
         container_client = blob_service_client.create_container(container_name)
+
+def upload_image_to_blob(image_path, blob_container, blob_name, container_name = 'images'):
+    try:
+        # Check if container exists and create one if not
+        create_container_if_not_exists(container_name)
+        
+        # Create a blob client using the container and blob name
+        blob_name = f'{blob_container}/{blob_name}'
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+        
+        # Upload the image
+        with open(image_path, "rb") as data:
+            blob_client.upload_blob(data, overwrite=True)
+        
+        # Get the URL for the uploaded blob
+        blob_url = blob_client.url
+        logger.info(f"Image successfully uploaded to: {blob_url}")
+        
+        return blob_url
+    
+    except Exception as e:
+        logger.error(f"Failed to upload image: {e}")
+        return None
+
+def get_image_url_from_blob(blob_container, blob_name, container_name = 'images'):
+    try:
+        # Get the blob client
+        blob_name = f'{blob_container}/{blob_name}'
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+        
+        # Return the URL for the blob
+        blob_url = blob_client.url
+
+        return blob_url
+    
+    except Exception as e:
+        logger.error(f"Failed to retrieve image URL: {e}")
+        return None
 
 def get_all_usernames():
     """
@@ -159,3 +198,22 @@ def authenticate_user(username: str, users_list: list):
         if username:
            return True
     return False
+
+def filter_data(data, keywords):
+    filtered_data = []
+
+    for text in data:
+        # Split text into sentences for processing
+        sentences = text.split('\n')
+
+        # Keep only the sentences that contain one or more keywords
+        relevant_sentences = \
+            [sentence for sentence in sentences if any(re.search(rf'\b{keyword}\b', sentence.lower()) for keyword in keywords)]
+        
+        # Join relevant sentences back together
+        filtered_text = ". ".join(relevant_sentences)
+        
+        if filtered_text:
+            filtered_data.append(filtered_text)
+    
+    return filtered_data
