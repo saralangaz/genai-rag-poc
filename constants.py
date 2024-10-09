@@ -3,7 +3,7 @@ from typing import ClassVar, List
 import os
 
 # Generic system prompt
-gen_system_prompt = "You are a helpful AI assistant"
+gen_system_prompt = "You are a helpful AI assistant that provides information about images and texts."
 # Generic user prompt for text
 gen_text_prompt = "Summarize these documents"
 # Generic user prompt for image
@@ -12,6 +12,11 @@ gen_image_prompt = "Describe this image"
 gen_user_query = ""
 # Generic context
 gen_context = ""
+# Weaviates stopword list
+stopwords_list = ["a", "an", "and", "are", "as", "at", "be", "but", "by", "for",
+		"if", "in", "into", "is", "it", "no", "not", "of", "on", "or", "such", "that",
+		"the", "their", "then", "there", "these", "they", "this", "to", "was", "will",
+		"with", "you"]
 
 # Directory where images will be stored
 IMAGE_DIR = "/usr/src/app/images"

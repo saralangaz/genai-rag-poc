@@ -27,5 +27,9 @@ kubectl describe pod <pod_name>
 ```
 kubectl get services
 ```
+- Helm upgrade (for Weaviate container):
+```
+helm upgrade --install <service_name> . --namespace <namespace>
+```
 
 

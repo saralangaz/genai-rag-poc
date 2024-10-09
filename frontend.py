@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 from utils import get_all_usernames
 import json
+import re
 load_dotenv()
 
 # Setup logging
@@ -14,35 +15,6 @@ logger = logging.getLogger(__name__)
 class BackendAPI:
     def __init__(self):
         self.backend_host = os.getenv('BACKEND_HOST', "http://backend:8000")
-
-    def process_mm_request(self, input, request: gr.Request):
-        """
-        Send a POST request to a FastAPI backend for processing multi-modal requests.
-        """
-        try:
-            url = f"{self.backend_host}/api/execute_model"
-            input = json.loads(input)
-
-            payload = {
-                "model": input.get("model"),
-                "use_case": "multimodal",
-                "collection_name": None,
-                "k_value": None,
-                "system_prompt": input.get("system_prompt"),
-                "user_prompt": input.get("user_prompt"),
-                "image_url": input.get("image_url"),
-                "username": request.username
-            }
-            logger.info(f'Info loaded: Payload is {payload}')
-            response = requests.post(url, json=payload, stream=True)
-            collected_data = ""
-            for line in response.iter_lines():
-                decoded_line = line.decode('utf-8')
-                if decoded_line:
-                    collected_data += decoded_line
-                    yield collected_data
-        except Exception as e:
-            return {'error': f'{str(e)}'}
 
     def process_rag_request(self, input: dict, request: gr.Request):
         """
@@ -63,13 +35,11 @@ class BackendAPI:
                 "username": request.username
             }
             logger.info(f'Info loaded: Payload is {payload}')
-            response = requests.post(url, json=payload, stream=True)
-            collected_data = ""
-            for line in response.iter_lines():
-                decoded_line = line.decode('utf-8')
-                if decoded_line:
-                    collected_data += decoded_line
-                    yield collected_data
+            response = requests.post(url, json=payload)
+            formatted_response = re.sub(r"\\n\\n", "</p><p>", response.text)
+            formatted_response = re.sub(r"\\n", "<br>", formatted_response) 
+
+            return f"<p>{formatted_response}</p>" 
 
         except Exception as e:
             return {'error': f'{str(e)}'}
@@ -143,50 +113,36 @@ css = """
 # Create an instance of the BackendAPI class
 backend_api = BackendAPI()
 
+# Load your header image
+header_image = "/code/images/image.png"
+
 # Create Gradio interface
 with gr.Blocks(css=css) as demo:
-    gr.Markdown("""Choose the Use Case for this demo.
-                
+    gr.Image(header_image, elem_id="header-img", show_label=False,  # Hide the label
+        show_download_button=False,  # Hide the download button
+        show_fullscreen_button=False,
+        width="100%") 
+    gr.Markdown("""
                 **NEXT STEPS y MEJORAS**
                 - Mejorar tiempos de respuesta de Ollama API
                 - Mejorar chunks de textos
-                - Posibilidad de filtrar queries a la BBDD
+                - Filtrado dinámico de queries a la BBDD
                 - Capacidad de cargar dinámicamente nuevos modelos en el contenedor de Ollama
-                - Cargar imágenes en el Multi-Modal Use Case (en vez de pasar una URL)
-                - Asociar collections a usuarios en la BBDD""")
-    # Define Gradio components for multi-modal model processing
-    with gr.Tab("Ask the chatbot"):
-        gr.Markdown("""**Multi-Modal Use Case:** 
-                    This tab is used to ask the chatbot to generate responses based on your queries, provide information about an image, etc.
-                    
-                    Mandatory inputs: model type (llama3.1:8b, llava:7b). 
-                    
-                    Optional inputs: system prompt, user prompt, image URL. "
-
-                    USE LLAVA MODEL FOR IMAGE PROCESSING!
-
-                    **Structure**:""")
-        gr.Markdown("""```
-                    {"model": "llama3.1:8b",
-                     "system_prompt": "You are an intelligent assistant that helps generate structured data.",
-                     "user_prompt":"Generate a set of JSON data for a hypothetical e-commerce website. The data should include fields for product name, price, and availability",
-                     "image_url": ""}
-                ```""")
-        mm_input = gr.Textbox(label="Inputs")
-        mm_button = gr.Button("Submit")
-        mm_out = gr.Textbox(label="Model Response", lines=10)
+                - Asociar collections a usuarios en la BBDD
+                """)
     
     with gr.Tab("Ask the Knowledge Base"):
         # Define Gradio components for RAG model processing
-        gr.Markdown("""**Rag Use Case:** 
-                    This tab is used to Upload documents to Weaviate Vectorial Database and ask questions or extract information from those documents.
+        gr.Markdown("""This tab is used to ask questions or extract information from the Knowledge Base.
                     
                     Mandatory inputs: model type (llama3.1:8b, mistral:7b), collection name and user prompt. 
+
+                    The model type for image retrieval is llava:7b by default.
                     
-                    Optional input: k: number of documents to retrieve, by default 5;
+                    Optional input: k: number of documents/images to retrieve, by default 5;
                     
-                    Embeddings will be stored in weaviate under the collection name.
-                    You can save all the documents you want inside the same collection name.""")
+                    Embeddings will be stored in WeaviateDB under the collection name.
+                    You can save all the documents and images you want inside the same collection name.""")
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### Structure")
@@ -197,14 +153,13 @@ with gr.Blocks(css=css) as demo:
                 "user_prompt": "can you summarize the use of kubernetes in 100 words"}
                 ```""")
                 rag_input = gr.Textbox(label="Inputs", lines=4)
-        rag_button = gr.Button("Submit")
-        rag_out = gr.Textbox(label="Model Response", lines=6)
+                rag_button = gr.Button("Submit")
+        rag_out = gr.Markdown(label="Model Response", line_breaks=True, show_copy_button=True)
 
-    with gr.Tab("Handle Vectorial Database"):
+    with gr.Tab("Handle Knowledge Base"):
         with gr.Row():
             with gr.Column(scale=1,):
                 gr.Markdown("### Upload Documents to Weaviate DB")
-                gr.Markdown("Add a collection name and select one or more documents to upload and save them in the DB")
                 rag_textfile_input = gr.Textbox(label="Collection Name", placeholder="kubernetes")
                 rag_file_input = gr.Files(label="Upload Documents", type="filepath")
                 upl_button = gr.Button("Upload")
@@ -224,7 +179,6 @@ with gr.Blocks(css=css) as demo:
                 list_button = gr.Button("List")
         ragfile_out = gr.Textbox(label="Database Response")
 
-    mm_button.click(backend_api.process_mm_request, inputs=mm_input, outputs=mm_out)
     rag_button.click(backend_api.process_rag_request, inputs=[rag_input], outputs=rag_out)
     upl_button.click(backend_api.upload_documents, inputs=[rag_textfile_input, rag_file_input], outputs=ragfile_out)
     upl_img_button.click(backend_api.upload_images, inputs=[rag_textimage_input, rag_textimagedesc_input, image_input], outputs=ragfile_out)
@@ -232,4 +186,4 @@ with gr.Blocks(css=css) as demo:
     list_button.click(backend_api.list_collection_request, outputs=ragfile_out)
 
 # Launch the combined interface
-demo.launch(server_name="0.0.0.0", auth=(get_all_usernames()))
+demo.launch(server_name="0.0.0.0", auth=(get_all_usernames()), allowed_paths=["/code/images/"])

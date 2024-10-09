@@ -6,20 +6,20 @@ from PIL import Image
 from io import BytesIO
 import base64
 import os
-from constants import ExecuteModelInput, CollectionInput, ImageInput, IMAGE_DIR, gen_system_prompt
+from constants import ExecuteModelInput, CollectionInput, ImageInput, IMAGE_DIR, stopwords_list
 from typing import Dict
 from pypdf import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from dotenv import load_dotenv
-from utils import generate_unique_id
+from utils import upload_image_to_blob, get_image_url_from_blob, filter_data
 import ollama
 import timeit
 import weaviate.classes as wvc
-from weaviate.classes.config import Property, DataType
+from weaviate.classes.config import Property, DataType, Configure
+from weaviate.classes.query import Filter
 import weaviate
 import clip
 import torch
-from sklearn.decomposition import PCA
 
 load_dotenv()
 
@@ -50,89 +50,6 @@ class GenericInputs:
         self.gen_image_prompt = gen_image_prompt
         self.gen_text_prompt = gen_text_prompt
 
-# MultiModal Use Case
-class MultiModalModel(GenericInputs):
-    """
-    Represents a multi-modal model processing instance inheriting from GenericInputs.
-    """
-    def __init__(self, input_text: ExecuteModelInput, gen_system_prompt: str, gen_image_prompt: str, gen_text_prompt: str):
-        """
-        Initialize the MultiModalModel with input text and generic prompts.
-        """
-        super().__init__(gen_system_prompt, gen_image_prompt, gen_text_prompt)
-        self.input_text = input_text
-    
-    def execute_model(self):
-        """
-        Execute the multi-modal model processing with optional file inputs.
-
-        This method prepares the input messages, including system and user prompts,
-        optionally downloading and encoding an image, and interacts with an external
-        model to obtain a response. It stores the processed data along with a unique
-        request ID in the application's storage.
-
-        Parameters:
-        -----------
-        file_path : str or None, optional
-            The path to the file to be processed (default is None).
-        document_file : UploadFile or None, optional
-            The document file to be processed (default is None).
-
-        Returns:
-        --------
-        dict
-            A dictionary containing the request ID and processed data.
-
-        Raises:
-        -------
-        HTTPException
-            If there's an error processing the request, such as model loading failure
-            or issues with the image URL (status_code 500 or 400).
-        """
-        if self.input_text.system_prompt is None:
-            self.input_text.system_prompt = self.gen_system_prompt
-        if self.input_text.user_prompt is None:
-            self.input_text.user_prompt = self.gen_image_prompt
-        
-        logger.info(f"System prompt is {self.input_text.system_prompt} and user prompt is {self.input_text.user_prompt}")
-
-         # Construct the content with the output type
-        user_prompt = f"""
-        {self.input_text.user_prompt}
-
-        Aditional instructions:
-        - Please, follow the instructions specified in this prompt. Don't do anything that was not requested in this prompt.
-        """
-        try:
-            # Prepare message
-            messages = [ {'role': 'system', 'content': self.input_text.system_prompt},
-                         {'role': 'user', 'content': user_prompt}]
-            # Download and encode the image
-            if self.input_text.image_url:
-                image_response = requests.get(self.input_text.image_url)
-                image_response.raise_for_status()
-                image = Image.open(BytesIO(image_response.content))
-                buffered = BytesIO()
-                image.save(buffered, format="PNG")
-                image_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                # Add image to the message
-                messages[1]['images']= [image_base64]
-        except Exception as e:
-            logger.error(f"Error downloading or encoding image: {e}")
-            raise HTTPException(status_code=400, detail="Error processing image URL")
-        
-        try:                
-            # Call the external model
-            response = ollama.chat(model=self.input_text.model, messages=messages, stream=True)
-            
-            # Obtain the response from the model
-            for chunk in response:
-                content = chunk['message']['content']
-                yield content
-        
-        except Exception as e:
-            logger.error(f"Error processing request: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
 # Rag Use Case
 class RagModel(GenericInputs):
@@ -150,7 +67,9 @@ class RagModel(GenericInputs):
         """
         try:
             # Check if the collection already exists
+            logger.info(f'Retrieving collection...')
             collection = client.collections.get(collection_name)
+            logger.info(f'Collection is {collection}')
             return collection
 
         except Exception as e:
@@ -161,11 +80,16 @@ class RagModel(GenericInputs):
                     name=collection_name,
                     properties=[
                         Property(name="text", data_type=DataType.TEXT),
+                        Property(name="source", data_type=DataType.TEXT),
                         Property(name="image_description", data_type=DataType.TEXT),
                         Property(name="image_url", data_type=DataType.TEXT),
                         Property(name="image_name", data_type=DataType.TEXT)
-                    ]
-                )
+                    ],
+                    vectorizer_config=[Configure.NamedVectors.text2vec_ollama(
+                        name='ollama_vector',
+                        api_endpoint=ollama_host,
+                        model='nomic-embed-text'
+                    )])
                 logger.info(f"Collection '{collection_name}' created with text and image properties.")
                 return collection
             else:
@@ -228,31 +152,46 @@ class RagModel(GenericInputs):
             logger.error(f"Error processing request: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    def retrieve_response(self, input_text:ExecuteModelInput, data, type, image_name):
+    def retrieve_response(self, input_text:ExecuteModelInput, data, type, name):
+            # Join all the texts into a single string
+            data = "\n\n---\n\n".join(data)
+            logger.info(f'Data is {data}')
             if type == 'vision':
-                logger.info('Calling vision model...')
-                image_path = os.path.join(IMAGE_DIR, image_name)
-                with open(image_path, 'rb') as img_file:
-                    image = Image.open(img_file)
-                    # Convert the image to bytes using BytesIO
+                images_list = []
+                for image in name:
+                    logger.info('Encoding image to base64...')
+                    image_path = get_image_url_from_blob(input_text.collection_name, image)
+                    response = requests.get(image_path)
+                    image = Image.open(BytesIO(response.content))
                     buffered = BytesIO()
-                    image.save(buffered, format="PNG")
-                    buffered.seek(0)
-                    image_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                # Prepare message
-                messages = [ {'role': 'system', 'content': gen_system_prompt},
-                            {'role': 'user', 'content': input_text.user_prompt, 'image': image_base64}]
-                # Add image to the message
+                    image.save(buffered, format="JPEG")
+                    img_bytes = buffered.getvalue()
+                    images_list.append(base64.b64encode(img_bytes).decode("utf-8"))
+                name = "\n\n---\n\n".join(name) 
+                # Create prompt
+                prompt = f'''Using this data {data} and these image names {name}, respond to this question {input_text.user_prompt}.
+                            There is also one or more images attached, you should have it into account to respond to the question provided.'''
+                logger.info('Calling vision model...')
                 output = ollama.generate(
                 model="llava:7b",
-                prompt=input_text.user_prompt,
-                images=[image_base64],
-                stream=True)
+                prompt=prompt,
+                images=images_list)
             else:
+                name = "\n\n---\n\n".join(name) 
+                logger.info('Calling large language model...')
                 output = ollama.generate(
                 model=input_text.model,
-                prompt=f"Using this data: {data}, respond to this prompt: {input_text.user_prompt}",
-                stream=True)
+                prompt=f'''Using this data: {data}, respond to this prompt: {input_text.user_prompt}. 
+                Add the sources of the data used at the end of the response. The sources are contained in {name}.
+                The structure of the output should be like the following:
+                Retrieved information:
+                [response]
+                
+                Sources:
+                - [source 1]
+                - [source 2]
+                - ...
+                Do not duplicate sources and add the page where the retrieved information has been found''')
             
             return output
     
@@ -295,9 +234,10 @@ class RagModel(GenericInputs):
                                                     prompt = d)
                         # Add data object with text and embedding
                         batch.add_object(
-                            properties = {"text" : d},
-                            vector = response["embedding"],
+                            properties = {"text" : d, "source": file_path},
                         )
+                logger.info(f'Failed objects are {collection.batch.failed_objects}')
+
                 return 'Documents uploaded'
         
         except Exception as e:
@@ -308,7 +248,7 @@ class RagModel(GenericInputs):
         """
         Function to extract image embedding using CLIP model.
         """
-        logger.info('Retrieving image...')
+        logger.info('Generating embedding for image...')
         image_path = os.path.join(IMAGE_DIR, image_name)
         image = clip_preprocess(Image.open(image_path)).unsqueeze(0).to(device)
         with torch.no_grad():
@@ -328,14 +268,18 @@ class RagModel(GenericInputs):
             with collection.batch.dynamic() as batch:
                 counter = 0
                 for image_path in image_paths:
+                    # Upload the image to Blob Storage and get the blob URL
+                    image_name = image_names[counter]
+                    blob_url = upload_image_to_blob(os.path.join(IMAGE_DIR, image_names[counter]), input_text.collection_name, image_name)
+
                     # Assuming CLIP or another model for generating image embeddings
                     image_embedding = self.get_image_embedding(image_names[counter])
-                    logger.info(f"Image embedding shape: {image_embedding.shape}")  # This should print (1024,)
+                    logger.info(f"Image embedding shape: {image_embedding.shape}") 
                     
                     with collection.batch.dynamic() as batch:
                         batch.add_object(
                             properties={"image_description": input_text.image_description,
-                                        "image_url": image_path,
+                                        "image_url": blob_url,
                                         "image_name": image_names[counter]},
                             vector=image_embedding
                         )
@@ -372,56 +316,60 @@ class RagModel(GenericInputs):
             logger.info('Querying collection...')
             collection = client.collections.get(input_text.collection_name)
             # Generate an embedding for the prompt and retrieve the most relevant doc
-            embed_start = timeit.timeit()
-            response = ollama.embeddings(
-            model = "nomic-embed-text",
-            prompt = input_text.user_prompt,
-            )
-            embed_end = timeit.timeit()
+            embed_start = timeit.default_timer()
+            embed_end = timeit.default_timer()
 
             # Check if the prompt refers to an image or images
             image_synonims = ['image', 'picture', 'logo', 'photo']
             is_image_query = [i for i in image_synonims if i in input_text.user_prompt.lower()]
 
-            query_start = timeit.timeit()
-            name=None
+            # Create a filter condition to obtain only relevant image metadata 
+            keywords = [word for word in input_text.user_prompt.lower().split() if word not in stopwords_list]
+            logger.info(f'Query keywords are {keywords}')
+            
+            query_start = timeit.default_timer()
+            data = []
+            name = []
+
             if is_image_query:
                 # Query for images using the text embedding
                 logger.info('Performing image query using text embedding...')
-                results = collection.query.near_vector(near_vector=response['embedding'], limit=input_text.k_value)
-                if 'image_description' in results.objects[0].properties:
-                    data = results.objects[0].properties['image_description']
-                    name = results.objects[0].properties['image_name']
-                    type = 'vision'
-                else:
-                    data = "No image data found."
-                    type = 'vision'
-                    name = 'No image data found. '
-
+                results = collection.query.near_text(query=input_text.user_prompt, limit=input_text.k_value,
+                                                     filters=Filter.by_property('image_description').contains_any(keywords))
+                type = 'vision'
+                for result in results.objects:
+                    # Append each retrieved text to the all_data list
+                    if result.properties.get('image_description') is not None:
+                        data.append(result.properties['image_description'])
+                    if result.properties.get('image_name') is not None:
+                        name.append(result.properties['image_name'])
             else:
                 # Query for text using the text embedding
                 logger.info('Performing text query...')
-                results = collection.query.near_vector(near_vector=response['embedding'], limit=input_text.k_value)
-                if 'text' in results.objects[0].properties:
-                    data = results.objects[0].properties['text']
-                    type = 'text'
-                else:
-                    data = "No text data found."
-                    type = 'text'
+                results = collection.query.near_text(query=input_text.user_prompt, limit=input_text.k_value,
+                                                     filters=Filter.by_property('text').contains_any(keywords))
+                type = 'text'
+                for result in results.objects:
+                    # Append each retrieved text to the all_data list
+                    if result.properties.get('text') is not None:
+                        data.append(result.properties['text'])
+                    if result.properties.get('source') is not None:
+                        name.append(result.properties['source'])
+                # data = filter_data(data, keywords)
 
-            query_end = timeit.timeit()
+            query_end = timeit.default_timer()
             # Provide response
-            resp_start = timeit.timeit()
+            resp_start = timeit.default_timer()
             output = self.retrieve_response(input_text, data, type, name)
-            resp_end = timeit.timeit()
+            resp_end = timeit.default_timer()
+
+            # Log all timings
             logger.info('Response timings are:')
-            logger.info(f'embed_timing: {(embed_end - embed_start)} seconds')
-            logger.info(f'query_timing: {(query_end - query_start)} seconds')
-            logger.info(f'response_model_timing: {(resp_end - resp_start)} seconds')
-            # Obtain the response from the model
-            for chunk in output:
-                content = chunk['response']
-                yield content
+            logger.info(f'Embed timing: {(embed_end - embed_start):.4f} seconds')
+            logger.info(f'Query timing: {(query_end - query_start):.4f} seconds')
+            logger.info(f'Model response timing: {(resp_end - resp_start):.4f} seconds')
+            
+            return output['response']
         
         except Exception as e:
             logger.error(f"Error processing request: {e}")
